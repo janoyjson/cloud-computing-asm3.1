@@ -1,0 +1,16 @@
+For Assessment 3, I propose to develop CloudSentinel, a deployment health monitoring platform for small software development teams and individual developers.
+The primary use case is to help developers monitor their deployed web applications and APIs after release without needing to manually check whether their services are still operating correctly. For example, a developer who has deployed several client websites or backend APIs can register those endpoints in CloudSentinel and monitor them from a single dashboard.
+CloudSentinel will allow users to:
+
+    Register websites and API endpoints they are responsible for.
+    Perform immediate and scheduled availability checks.
+    Monitor HTTP status codes and response times.
+    Detect and record outages and service recoveries.
+    Receive notifications when a monitored service becomes unavailable.
+    View historical uptime, incident, and response-time analytics.
+    Run performance checks to identify potential website performance issues. 
+
+The intended users are freelance developers, small development teams, and DevOps/cloud engineering students or practitioners who manage multiple deployed web applications but do not require a large enterprise monitoring platform.
+The proposed technology stack is React and TypeScript for the frontend, with AWS services including S3 and CloudFront for frontend hosting, API Gateway and Lambda for backend APIs, ECS Fargate and EventBridge Scheduler for scheduled containerised monitoring, DynamoDB for application and monitoring data, and S3, Glue and Athena for historical analytics. Google PageSpeed Insights and a notification webhook API will also be integrated as external services.
+The main workflow will be:
+Developer registers a deployed application → CloudSentinel periodically checks the endpoint → detects availability/performance issues → records the results → alerts the developer if a failure occurs → provides historical reliability analytics through the dashboard.

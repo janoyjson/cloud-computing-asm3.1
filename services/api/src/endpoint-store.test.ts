@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+
+import { EndpointStore, ValidationError } from './endpoint-store.js';
+
+const dependencies = {
+  createId: () => 'endpoint-123',
+  now: () => new Date('2026-08-26T12:00:00.000Z'),
+};
+
+describe('EndpointStore', () => {
+  it('creates and lists a normalized endpoint', async () => {
+    const store = new EndpointStore([], dependencies);
+
+    const endpoint = await store.create({
+      name: ' Client API ',
+      url: 'https://api.example.com/health',
+      intervalMinutes: 15,
+    });
+
+    expect(endpoint).toMatchObject({
+      id: 'endpoint-123',
+      name: 'Client API',
+      enabled: true,
+      intervalMinutes: 15,
+    });
+    await expect(store.list()).resolves.toEqual([endpoint]);
+  });
+
+  it('rejects non-HTTP destinations', async () => {
+    const store = new EndpointStore([], dependencies);
+
+    await expect(store.create({
+      name: 'Unsafe',
+      url: 'file:///etc/passwd',
+      intervalMinutes: 15,
+    })).rejects.toThrow(ValidationError);
+  });
+
+  it('rejects unsupported monitoring intervals', async () => {
+    const store = new EndpointStore([], dependencies);
+
+    await expect(store.create({
+      name: 'Too frequent',
+      url: 'https://example.com',
+      intervalMinutes: 1 as 5,
+    })).rejects.toThrow('Interval must be 5, 15, 30, or 60 minutes.');
+  });
+});

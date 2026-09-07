@@ -1,0 +1,22 @@
+{
+  "name": "@cloudsentinel/monitor-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "bundle:container": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist-container/index.cjs --sourcemap",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.883.0",
+    "@aws-sdk/client-s3": "^3.883.0",
+    "@aws-sdk/lib-dynamodb": "^3.883.0",
+    "@cloudsentinel/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
+  }
+}

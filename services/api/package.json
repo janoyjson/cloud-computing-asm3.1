@@ -1,0 +1,21 @@
+{
+  "name": "@cloudsentinel/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "bundle:lambda": "esbuild src/handler.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-lambda/index.js --sourcemap",
+    "package:lambda": "pnpm run bundle:lambda && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-lambda.ps1",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.883.0",
+    "@aws-sdk/lib-dynamodb": "^3.883.0",
+    "@cloudsentinel/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
+  }
+}

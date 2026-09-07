@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/dist-lambda
+**/dist-container
+**/coverage
+**/.vite
+**/cdk.out
+.git
+.env
+.env.*
+!.env.example
+tmp
+artifacts
+*.log
+.DS_Store
+Thumbs.db
