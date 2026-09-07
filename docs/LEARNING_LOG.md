@@ -77,5 +77,46 @@ Before continuing, be able to explain:
 - Added public-destination validation for initial URLs and every redirect, redirect limits, timeouts, and a named monitoring user agent.
 - Added DynamoDB check-result writes, atomic latest-state updates, and partitioned JSON storage in S3.
 - Changed endpoint downtime into a successfully stored business result; only worker or persistence failures should fail the ECS task.
-- Reworked the Dockerfile to copy a bundled runtime into a smaller Node.js 22 image without development dependencies.
-- Confirmed that the local computer still requires WSL, Docker Desktop, and AWS CLI before an ECR push can be performed.
+- Reworked the Dockerfile to copy a bundled runtime into a smaller Node.js 24 image without development dependencies.
+- Identified WSL, Docker Desktop, and AWS CLI as prerequisites for publishing the worker to ECR.
+
+## 7 September 2026 - Phase 3 container publishing
+
+### Container compatibility fixes
+
+- Added a root `.dockerignore` so Windows workspace dependencies cannot overwrite Linux dependencies installed during the image build.
+- Matched the image runtime to the project's Node.js 24 requirement.
+- Changed the bundled entry point to CommonJS and wrapped startup in an async `main()` so the AWS SDK can load Node.js built-ins correctly.
+- Verified that the image runs as the non-root `node` user and rejects startup when required task environment variables are absent.
+
+### Docker Desktop recovery
+
+- Diagnosed Docker Desktop startup failures from backend logs rather than using the destructive factory-reset option.
+- Isolated inaccessible Windows AF_UNIX sockets by preserving and replacing their parent runtime directories.
+- Disabled the optional Docker AI component that immediately recreated the failing `sailor-ingest.sock` socket.
+- Confirmed that the normal Linux container engine starts successfully after the recovery.
+
+### ECR evidence
+
+- Authenticated Docker to the Learner Lab ECR registry without placing credentials in commands or repository files.
+- Published the tested `cloudsentinel-monitor-worker:0.2.0` image to the immutable ECR repository.
+- Verified the tag, digest, push timestamp, and approximately 58.8 MB compressed image size through the ECR API.
+
+### First Fargate execution
+
+- Created the ECS cluster, Fargate task definition, outbound-only worker security group, and one-day CloudWatch log group manually.
+- Ran one public-subnet task with a public IP because the Learner Lab VPC has no NAT gateway or private service endpoints.
+- Confirmed exit code `0` and an HTTP `200` availability result for the controlled test endpoint.
+- Verified the same check timestamp and values in CloudWatch Logs, `CloudSentinelChecks`, the monitor's `latestCheck`, and an SSE-S3 encrypted partitioned object.
+
+### Automated "Run now" implementation
+
+- Added an API task-launcher that reads a monitor from DynamoDB and calls ECS `RunTask` with endpoint-specific container overrides.
+- Added the `POST /v1/endpoints/{id}/checks` route with safe not-found and internal-error responses.
+- Connected the dashboard button to the API and poll-based status refresh so a completed Fargate result appears without a full page reload.
+- Added unit tests for ECS request construction, placement failures, endpoint lookup, the API route, and the browser client.
+- Uploaded the updated Lambda bundle and attached the new API Gateway route to `CloudSentinelApi` with invoke permission enabled.
+- Verified that the live POST route returned a Fargate task ARN and that the task completed with exit code `0`.
+- Matched the API-started task's timestamp and result across CloudWatch Logs, `CloudSentinelChecks`, the monitor's latest state, and the AES256-encrypted S3 evidence object.
+- Detected and corrected an initially unattached API Gateway route before accepting the deployment as complete.
+- Deployed the API-configured frontend build to the S3 website and verified that its "Run check" button updated the selected monitor to `UP` through the complete AWS workflow.

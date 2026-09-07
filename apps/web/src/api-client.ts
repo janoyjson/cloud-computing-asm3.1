@@ -4,6 +4,11 @@ interface EndpointListResponse {
   items: MonitoredEndpoint[];
 }
 
+interface StartCheckResponse {
+  taskArn: string;
+  status: 'STARTED';
+}
+
 interface ApiErrorResponse {
   error?: {
     message?: string;
@@ -39,6 +44,12 @@ export class CloudSentinelApiClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
+    });
+  }
+
+  public startCheck(endpointId: string): Promise<StartCheckResponse> {
+    return this.#request<StartCheckResponse>(`/v1/endpoints/${encodeURIComponent(endpointId)}/checks`, {
+      method: 'POST',
     });
   }
 

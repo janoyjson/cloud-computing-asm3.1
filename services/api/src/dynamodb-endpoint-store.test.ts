@@ -1,4 +1,4 @@
-import { DynamoDBDocumentClient, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
@@ -48,6 +48,23 @@ describe('DynamoEndpointStore', () => {
       TableName: 'CloudSentinelMonitors',
       Item: endpoint,
       ConditionExpression: 'attribute_not_exists(id)',
+    });
+  });
+
+  it('gets an endpoint by ID', async () => {
+    const endpoint = { id: 'endpoint-123', name: 'Status page' };
+    const send = vi.fn().mockResolvedValue({ Item: endpoint });
+    const store = new DynamoEndpointStore({
+      tableName: 'CloudSentinelMonitors',
+      client: { send } as unknown as DynamoDBDocumentClient,
+    });
+
+    await expect(store.get('endpoint-123')).resolves.toEqual(endpoint);
+    const command = send.mock.calls[0]?.[0];
+    expect(command).toBeInstanceOf(GetCommand);
+    expect(command.input).toEqual({
+      TableName: 'CloudSentinelMonitors',
+      Key: { id: 'endpoint-123' },
     });
   });
 });

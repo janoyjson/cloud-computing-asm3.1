@@ -48,6 +48,21 @@ Validation rules:
 - Interval must be one of 5, 15, 30, or 60 minutes.
 - Production validation in Phase 3 must also block private, loopback, link-local, and metadata destinations.
 
+## Phase 3 implemented contracts
+
+### `POST /endpoints/{id}/checks`
+
+Starts one Fargate monitoring task for the persisted endpoint. Endpoint ID and URL are passed as task-specific container overrides. Returns `202 Accepted`:
+
+```json
+{
+  "taskArn": "arn:aws:ecs:region:account:task/cluster/task-id",
+  "status": "STARTED"
+}
+```
+
+The client polls `GET /endpoints` until the worker updates the endpoint's `latestCheck` value.
+
 ## Planned contracts
 
 | Method | Path | Purpose | Target phase |
@@ -55,7 +70,6 @@ Validation rules:
 | `GET` | `/endpoints/{id}` | Read monitor details | 2 |
 | `PATCH` | `/endpoints/{id}` | Change monitor and schedule | 2/3 |
 | `DELETE` | `/endpoints/{id}` | Remove monitor and schedule | 2/3 |
-| `POST` | `/endpoints/{id}/checks` | Start an ECS check immediately | 3 |
 | `GET` | `/endpoints/{id}/checks` | Read recent check results | 3 |
 | `GET` | `/endpoints/{id}/incidents` | Read incident history | 4 |
 | `POST` | `/endpoints/{id}/performance` | Start PageSpeed analysis | 5 |

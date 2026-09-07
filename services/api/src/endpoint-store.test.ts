@@ -24,6 +24,8 @@ describe('EndpointStore', () => {
       intervalMinutes: 15,
     });
     await expect(store.list()).resolves.toEqual([endpoint]);
+    await expect(store.get('endpoint-123')).resolves.toEqual(endpoint);
+    await expect(store.get('missing')).resolves.toBeUndefined();
   });
 
   it('rejects non-HTTP destinations', async () => {

@@ -47,7 +47,16 @@ Exit criteria:
 
 ## Phase 3 - Containerized monitoring and scheduling
 
-Status: In progress (2 September 2026)
+Status: In progress (7 September 2026)
+
+Progress evidence (7 September 2026):
+
+- The hardened worker image builds and passes local container startup checks on Node.js 24.
+- Version `0.2.0` is published to the immutable `cloudsentinel-monitor-worker` ECR repository.
+- A manually launched Fargate task exited successfully and produced matching evidence in CloudWatch Logs, DynamoDB, and the encrypted S3 results bucket.
+- The deployed API Gateway route invokes Lambda, which starts a monitor-specific Fargate task automatically.
+- The API-started task exited successfully and produced matching evidence in CloudWatch Logs, DynamoDB, and the encrypted S3 results bucket.
+- The updated dashboard is deployed to S3, and its "Run check" action was verified against the live API and Fargate worker; EventBridge Scheduler integration remains.
 
 Required work:
 

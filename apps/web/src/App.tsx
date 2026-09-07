@@ -21,6 +21,8 @@ import { CloudSentinelApiClient } from './api-client.js';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const apiClient = apiBaseUrl ? new CloudSentinelApiClient(apiBaseUrl) : undefined;
 const isAwsMode = apiClient !== undefined;
+const checkPollIntervalMs = 5_000;
+const checkPollAttempts = 12;
 
 const initialForm: CreateEndpointInput = {
   name: '',
@@ -45,6 +47,10 @@ function StatusBadge({ endpoint }: { endpoint: MonitoredEndpoint }) {
   return <span className={`status status-${state.toLowerCase()}`}>{state}</span>;
 }
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
 export default function App() {
   const [endpoints, setEndpoints] = useState<MonitoredEndpoint[]>(isAwsMode ? [] : initialEndpoints);
   const [checks, setChecks] = useState<CheckResult[]>(isAwsMode ? [] : initialChecks);
@@ -53,6 +59,7 @@ export default function App() {
     isAwsMode ? 'Loading monitors from AWS...' : 'Local fallback mode: no AWS resources are being used.',
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [runningEndpointIds, setRunningEndpointIds] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     if (!apiClient) {
@@ -112,9 +119,45 @@ export default function App() {
     }
   }
 
-  function runCheck(endpointId: string) {
-    if (isAwsMode) {
-      setNotice('Live availability checks will be connected to ECS Fargate in Phase 3.');
+  async function runCheck(endpointId: string) {
+    if (apiClient) {
+      const endpoint = endpoints.find((candidate) => candidate.id === endpointId);
+      const previousCheckedAt = endpoint?.latestCheck?.checkedAt;
+      setRunningEndpointIds((current) => new Set(current).add(endpointId));
+
+      try {
+        await apiClient.startCheck(endpointId);
+        setNotice(`Fargate check started for ${endpoint?.name ?? endpointId}. Waiting for its result...`);
+
+        for (let attempt = 0; attempt < checkPollAttempts; attempt += 1) {
+          await delay(checkPollIntervalMs);
+          const refreshedEndpoints = await apiClient.listEndpoints();
+          setEndpoints(refreshedEndpoints);
+          const refreshedEndpoint = refreshedEndpoints.find((candidate) => candidate.id === endpointId);
+          const latestCheck = refreshedEndpoint?.latestCheck;
+
+          if (latestCheck && latestCheck.checkedAt !== previousCheckedAt) {
+            setChecks((current) => [
+              latestCheck,
+              ...current.filter((check) => check.checkedAt !== latestCheck.checkedAt),
+            ]);
+            setNotice(
+              `${refreshedEndpoint.name} is ${latestCheck.state} (${latestCheck.responseTimeMs} ms).`,
+            );
+            return;
+          }
+        }
+
+        setNotice('The Fargate task started, but its result is taking longer than one minute.');
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'The availability check could not be started.');
+      } finally {
+        setRunningEndpointIds((current) => {
+          const next = new Set(current);
+          next.delete(endpointId);
+          return next;
+        });
+      }
       return;
     }
 
@@ -144,9 +187,9 @@ export default function App() {
         </nav>
         <div className="phase-card">
           <span>Current milestone</span>
-          <strong>Phase 2 of 8</strong>
+          <strong>Phase 3 of 8</strong>
           <div className="progress"><span /></div>
-          <small>Live AWS platform</small>
+          <small>Container monitoring</small>
         </div>
       </aside>
 
@@ -195,8 +238,9 @@ export default function App() {
             </div>
 
             <div className="endpoint-list">
-              {endpoints.map((endpoint) => (
-                <div className="endpoint-row" key={endpoint.id}>
+              {endpoints.map((endpoint) => {
+                const isRunning = runningEndpointIds.has(endpoint.id);
+                return <div className="endpoint-row" key={endpoint.id}>
                   <div className={`pulse pulse-${getEndpointState(endpoint).toLowerCase()}`} />
                   <div className="endpoint-identity">
                     <strong>{endpoint.name}</strong>
@@ -207,11 +251,16 @@ export default function App() {
                     <small>{formatTime(endpoint.latestCheck?.checkedAt)}</small>
                   </div>
                   <StatusBadge endpoint={endpoint} />
-                  <button className="button-secondary" type="button" onClick={() => runCheck(endpoint.id)}>
-                    {isAwsMode ? 'Run check · Phase 3' : 'Run check'}
+                  <button
+                    className="button-secondary"
+                    disabled={isRunning}
+                    type="button"
+                    onClick={() => void runCheck(endpoint.id)}
+                  >
+                    {isRunning ? 'Checking...' : 'Run check'}
                   </button>
                 </div>
-              ))}
+              })}
             </div>
           </article>
 
@@ -279,7 +328,7 @@ export default function App() {
             </div>
             <div className="activity-table" role="table" aria-label="Recent check activity">
               {checks.length === 0 && (
-                <p className="empty-state">Check history will appear after the Phase 3 worker is connected.</p>
+                <p className="empty-state">Run a check to load recent Fargate activity.</p>
               )}
               {checks.slice(0, 5).map((check, index) => {
                 const endpoint = endpoints.find((candidate) => candidate.id === check.endpointId);

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.883.0",
+    "@aws-sdk/client-ecs": "^3.1127.0",
     "@aws-sdk/lib-dynamodb": "^3.883.0",
     "@cloudsentinel/shared": "workspace:*"
   },

@@ -108,7 +108,7 @@ Use versioned image tags such as `0.2.0`; do not use `latest` with immutable tag
 
 ## Local container prerequisites
 
-The Windows development machine currently has no WSL, Docker, Podman, or AWS CLI. Before pushing an image:
+The Windows development machine uses WSL 2, Docker Desktop, and AWS CLI v2. Before pushing an image from a new session:
 
 1. Install or update WSL 2 and restart Windows if requested.
 2. Install Docker Desktop using the WSL 2 Linux-container backend.
@@ -122,3 +122,40 @@ docker build -f services/monitor-worker/Dockerfile -t cloudsentinel-monitor-work
 ```
 
 Open the ECR repository and choose **View push commands**. Use the displayed registry URI and add `--profile cloudsentinel-lab` to the AWS login command. Do not copy the Learner Lab credentials directly into a Docker command or repository file.
+
+## Phase 3 ECS Fargate resources
+
+Create these resources manually in `us-east-1`:
+
+- CloudWatch log group `/ecs/cloudsentinel-monitor-worker` with one-day retention.
+- ECS Fargate cluster `cloudsentinel-cluster` without EC2 capacity.
+- Outbound-only security group `cloudsentinel-worker-sg` in the Learner Lab VPC.
+- Fargate task definition family `cloudsentinel-monitor-worker`, using Linux/X86_64, 0.25 vCPU, 0.5 GB, and `LabRole` for both task roles.
+
+The task definition container uses the versioned ECR image, the `awslogs` driver, and these shared environment variables:
+
+```text
+MONITORS_TABLE_NAME=CloudSentinelMonitors
+CHECKS_TABLE_NAME=CloudSentinelChecks
+RESULTS_BUCKET_NAME=<results-bucket-name>
+MONITOR_SOURCE=MANUAL
+```
+
+For the controlled manual test only, add a real monitor ID and its matching public URL. Run one task in the public subnet, select the outbound-only security group, and enable a public IP. A successful one-shot worker is expected to stop with exit code `0`.
+
+Verify the matching result in CloudWatch Logs, `CloudSentinelChecks`, `CloudSentinelMonitors.latestCheck`, and the partitioned S3 object before connecting Lambda.
+
+## Phase 3 Lambda "Run now" deployment
+
+Rebuild and upload `artifacts/cloudsentinel-api.zip`, then add these Lambda environment variables using the actual console resource IDs:
+
+```text
+ECS_CLUSTER=cloudsentinel-cluster
+ECS_TASK_DEFINITION=cloudsentinel-monitor-worker:2
+ECS_SUBNET_IDS=<public-subnet-id>
+ECS_SECURITY_GROUP_IDS=<worker-security-group-id>
+ECS_CONTAINER_NAME=monitor-worker
+ECS_ASSIGN_PUBLIC_IP=true
+```
+
+Keep `MONITORS_TABLE_NAME=CloudSentinelMonitors`. In API Gateway, add `POST /v1/endpoints/{id}/checks` to the existing Lambda integration and redeploy if the selected stage does not auto-deploy.

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  GetCommand,
   PutCommand,
   ScanCommand,
   type NativeAttributeValue,
@@ -51,6 +52,15 @@ export class DynamoEndpointStore implements EndpointRepository {
     } while (exclusiveStartKey);
 
     return endpoints.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  public async get(id: string): Promise<MonitoredEndpoint | undefined> {
+    const response = await this.#client.send(new GetCommand({
+      TableName: this.#tableName,
+      Key: { id },
+    }));
+
+    return response.Item as MonitoredEndpoint | undefined;
   }
 
   public async create(input: CreateEndpointInput): Promise<MonitoredEndpoint> {

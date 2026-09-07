@@ -25,6 +25,7 @@ const defaultDependencies: StoreDependencies = {
 
 export interface EndpointRepository {
   list(): Promise<MonitoredEndpoint[]>;
+  get(id: string): Promise<MonitoredEndpoint | undefined>;
   create(input: CreateEndpointInput): Promise<MonitoredEndpoint>;
 }
 
@@ -78,6 +79,10 @@ export class EndpointStore implements EndpointRepository {
 
   public async list(): Promise<MonitoredEndpoint[]> {
     return [...this.#items.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  public async get(id: string): Promise<MonitoredEndpoint | undefined> {
+    return this.#items.get(id);
   }
 
   public async create(input: CreateEndpointInput): Promise<MonitoredEndpoint> {

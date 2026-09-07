@@ -58,4 +58,24 @@ describe('CloudSentinelApiClient', () => {
       intervalMinutes: 15,
     })).rejects.toThrow('URL must use HTTP or HTTPS.');
   });
+
+  it('starts a check for an encoded endpoint ID', async () => {
+    const fetchClient = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      taskArn: 'arn:task/example',
+      status: 'STARTED',
+    }), { status: 202 }));
+    const client = new CloudSentinelApiClient(
+      'https://abc.execute-api.us-east-1.amazonaws.com',
+      fetchClient,
+    );
+
+    await expect(client.startCheck('endpoint/123')).resolves.toEqual({
+      taskArn: 'arn:task/example',
+      status: 'STARTED',
+    });
+    expect(fetchClient).toHaveBeenCalledWith(
+      'https://abc.execute-api.us-east-1.amazonaws.com/v1/endpoints/endpoint%2F123/checks',
+      { method: 'POST' },
+    );
+  });
 });
