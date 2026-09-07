@@ -159,3 +159,33 @@ ECS_ASSIGN_PUBLIC_IP=true
 ```
 
 Keep `MONITORS_TABLE_NAME=CloudSentinelMonitors`. In API Gateway, add `POST /v1/endpoints/{id}/checks` to the existing Lambda integration and redeploy if the selected stage does not auto-deploy.
+
+## Phase 3 EventBridge Scheduler deployment
+
+The Learner Lab Scheduler list API succeeds in `us-east-1`, and the pre-created `LabRole` trust policy includes `scheduler.amazonaws.com`. Do not manually create one schedule per endpoint: the Lambda application must own that lifecycle.
+
+Rebuild and upload `artifacts/cloudsentinel-api.zip`. Keep the earlier environment variables and add:
+
+```text
+ECS_CLUSTER_ARN=<cluster ARN copied from the ECS cluster details page>
+ECS_TASK_DEFINITION_ARN=<full ARN for cloudsentinel-monitor-worker revision 2>
+SCHEDULER_EXECUTION_ROLE_ARN=<full ARN for LabRole>
+SCHEDULER_GROUP_NAME=default
+```
+
+In API Gateway, attach these routes to the existing `CloudSentinelApi` Lambda integration with invoke permission enabled:
+
+```text
+PATCH /v1/endpoints/{id}
+DELETE /v1/endpoints/{id}
+```
+
+The existing `POST /v1/endpoints` route now creates both the DynamoDB monitor and its recurring schedule. Create a new five-minute monitor through the dashboard, then open Amazon EventBridge Scheduler and verify:
+
+- The schedule name begins with `cloudsentinel-` and ends with the monitor ID.
+- The schedule is enabled and uses `rate(5 minutes)` with flexible time window disabled.
+- Its target is ECS `RunTask` on `cloudsentinel-cluster` using Fargate, the worker task definition, public subnet, outbound-only security group, and public IP.
+- The target input overrides the endpoint ID, URL, and `MONITOR_SOURCE=SCHEDULED`.
+- `LabRole` is the schedule execution role.
+
+Wait for the first invocation, then verify a new task with `MONITOR_SOURCE=SCHEDULED` in CloudWatch Logs and matching DynamoDB/S3 evidence. Use the PATCH route to disable or change the interval and verify the schedule changes; use DELETE only on a disposable test monitor and verify its schedule is removed.

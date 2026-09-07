@@ -47,7 +47,7 @@ Exit criteria:
 
 ## Phase 3 - Containerized monitoring and scheduling
 
-Status: In progress (7 September 2026)
+Status: Complete (7 September 2026)
 
 Progress evidence (7 September 2026):
 
@@ -57,6 +57,8 @@ Progress evidence (7 September 2026):
 - The deployed API Gateway route invokes Lambda, which starts a monitor-specific Fargate task automatically.
 - The API-started task exited successfully and produced matching evidence in CloudWatch Logs, DynamoDB, and the encrypted S3 results bucket.
 - The updated dashboard is deployed to S3, and its "Run check" action was verified against the live API and Fargate worker; EventBridge Scheduler integration remains.
+- The application-managed create, update, disable, and delete schedule lifecycle is implemented and tested.
+- A dashboard-created five-minute schedule invoked Fargate automatically and stored an `UP`, `SCHEDULED` result in CloudWatch Logs, DynamoDB, and an AES256-encrypted S3 object.
 
 Required work:
 

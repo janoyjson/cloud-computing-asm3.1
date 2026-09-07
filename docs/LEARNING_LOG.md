@@ -120,3 +120,14 @@ Before continuing, be able to explain:
 - Matched the API-started task's timestamp and result across CloudWatch Logs, `CloudSentinelChecks`, the monitor's latest state, and the AES256-encrypted S3 evidence object.
 - Detected and corrected an initially unattached API Gateway route before accepting the deployment as complete.
 - Deployed the API-configured frontend build to the S3 website and verified that its "Run check" button updated the selected monitor to `UP` through the complete AWS workflow.
+
+### Recurring schedule implementation
+
+- Confirmed that the Learner Lab permits EventBridge Scheduler reads in `us-east-1` and that `LabRole` trusts `scheduler.amazonaws.com`.
+- Added deterministic EventBridge schedule names and an ECS `RunTask` target with the same Fargate networking used by immediate checks.
+- Passed endpoint-specific ID and URL overrides with `MONITOR_SOURCE=SCHEDULED` so worker evidence distinguishes recurring runs from dashboard runs.
+- Connected endpoint creation, updates, enable/disable state, and deletion to the corresponding schedule lifecycle.
+- Preserved worker-owned `latestCheck` data by updating only mutable endpoint fields in DynamoDB.
+- Deployed the scheduler-enabled Lambda and created a five-minute monitor through the S3-hosted dashboard.
+- Verified that the application-created schedule targeted the expected cluster, task definition, subnet, security group, public-IP setting, and `LabRole` without manual schedule creation.
+- Confirmed the first automatic task exited successfully and matched one `UP`, `SCHEDULED` result across CloudWatch Logs, DynamoDB, and an AES256-encrypted S3 object.

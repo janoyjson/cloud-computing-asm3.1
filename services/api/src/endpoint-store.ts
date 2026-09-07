@@ -4,6 +4,7 @@ import {
   isMonitoringInterval,
   type CreateEndpointInput,
   type MonitoredEndpoint,
+  type UpdateEndpointInput,
 } from '@cloudsentinel/shared';
 
 export class ValidationError extends Error {
@@ -27,15 +28,25 @@ export interface EndpointRepository {
   list(): Promise<MonitoredEndpoint[]>;
   get(id: string): Promise<MonitoredEndpoint | undefined>;
   create(input: CreateEndpointInput): Promise<MonitoredEndpoint>;
+  update(id: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint | undefined>;
+  delete(id: string): Promise<boolean>;
 }
 
 export function createEndpoint(
   input: CreateEndpointInput,
   dependencies: StoreDependencies = defaultDependencies,
 ): MonitoredEndpoint {
+  if (typeof input.name !== 'string') {
+    throw new ValidationError('Name must contain between 1 and 80 characters.');
+  }
+
   const normalizedName = input.name.trim();
   if (normalizedName.length === 0 || normalizedName.length > 80) {
     throw new ValidationError('Name must contain between 1 and 80 characters.');
+  }
+
+  if (typeof input.url !== 'string') {
+    throw new ValidationError('URL must be an absolute HTTP or HTTPS URL.');
   }
 
   let parsedUrl: URL;
@@ -65,6 +76,34 @@ export function createEndpoint(
   };
 }
 
+export function updateEndpoint(
+  endpoint: MonitoredEndpoint,
+  input: UpdateEndpointInput,
+  now: () => Date = () => new Date(),
+): MonitoredEndpoint {
+  if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+    throw new ValidationError('Enabled must be true or false.');
+  }
+
+  const normalized = createEndpoint({
+    name: input.name ?? endpoint.name,
+    url: input.url ?? endpoint.url,
+    intervalMinutes: input.intervalMinutes ?? endpoint.intervalMinutes,
+  }, {
+    createId: () => endpoint.id,
+    now,
+  });
+
+  return {
+    ...endpoint,
+    name: normalized.name,
+    url: normalized.url,
+    intervalMinutes: normalized.intervalMinutes,
+    enabled: input.enabled ?? endpoint.enabled,
+    updatedAt: normalized.updatedAt,
+  };
+}
+
 export class EndpointStore implements EndpointRepository {
   readonly #dependencies: StoreDependencies;
   readonly #items = new Map<string, MonitoredEndpoint>();
@@ -90,5 +129,20 @@ export class EndpointStore implements EndpointRepository {
 
     this.#items.set(endpoint.id, endpoint);
     return endpoint;
+  }
+
+  public async update(id: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint | undefined> {
+    const existing = this.#items.get(id);
+    if (!existing) {
+      return undefined;
+    }
+
+    const endpoint = updateEndpoint(existing, input, this.#dependencies.now);
+    this.#items.set(id, endpoint);
+    return endpoint;
+  }
+
+  public async delete(id: string): Promise<boolean> {
+    return this.#items.delete(id);
   }
 }

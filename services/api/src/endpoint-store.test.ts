@@ -47,4 +47,27 @@ describe('EndpointStore', () => {
       intervalMinutes: 1 as 5,
     })).rejects.toThrow('Interval must be 5, 15, 30, or 60 minutes.');
   });
+
+  it('updates and deletes an existing endpoint', async () => {
+    const store = new EndpointStore([], dependencies);
+    await store.create({
+      name: 'Client API',
+      url: 'https://api.example.com/health',
+      intervalMinutes: 15,
+    });
+
+    const updated = await store.update('endpoint-123', {
+      intervalMinutes: 30,
+      enabled: false,
+    });
+
+    expect(updated).toMatchObject({
+      id: 'endpoint-123',
+      intervalMinutes: 30,
+      enabled: false,
+    });
+    await expect(store.delete('endpoint-123')).resolves.toBe(true);
+    await expect(store.get('endpoint-123')).resolves.toBeUndefined();
+    await expect(store.delete('endpoint-123')).resolves.toBe(false);
+  });
 });

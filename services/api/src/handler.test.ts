@@ -31,7 +31,12 @@ describe('API handler', () => {
       createId: () => 'endpoint-123',
       now: () => new Date('2026-09-02T01:30:00.000Z'),
     });
-    const handler = createHandler(() => store);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      () => ({ upsert, remove: vi.fn() }),
+    );
 
     const created = await handler(event('POST /v1/endpoints', JSON.stringify({
       name: 'Example',
@@ -42,6 +47,7 @@ describe('API handler', () => {
 
     expect(created).toMatchObject({ statusCode: 201 });
     expect(JSON.parse(responseBody(listed)).items).toHaveLength(1);
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'endpoint-123' }));
   });
 
   it('does not expose unexpected errors', async () => {
@@ -49,6 +55,8 @@ describe('API handler', () => {
       list: async () => { throw new Error('secret implementation detail'); },
       get: async () => undefined,
       create: async () => { throw new Error('secret implementation detail'); },
+      update: async () => undefined,
+      delete: async () => false,
     });
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -95,5 +103,63 @@ describe('API handler', () => {
 
     expect(response).toMatchObject({ statusCode: 404 });
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it('updates the endpoint and its recurring schedule together', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123',
+      name: 'Production API',
+      url: 'https://example.com/health',
+      intervalMinutes: 15,
+      enabled: true,
+      createdAt: '2026-09-07T00:00:00.000Z',
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      () => ({ upsert, remove: vi.fn() }),
+    );
+
+    const response = await handler(
+      event('PATCH /v1/endpoints/{id}', JSON.stringify({ intervalMinutes: 30, enabled: false }), {
+        id: 'endpoint-123',
+      }),
+      {} as never,
+      vi.fn(),
+    );
+
+    expect(response).toMatchObject({ statusCode: 200 });
+    expect(JSON.parse(responseBody(response))).toMatchObject({ intervalMinutes: 30, enabled: false });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ intervalMinutes: 30, enabled: false }));
+  });
+
+  it('removes the recurring schedule before deleting its endpoint', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123',
+      name: 'Production API',
+      url: 'https://example.com/health',
+      intervalMinutes: 15,
+      enabled: true,
+      createdAt: '2026-09-07T00:00:00.000Z',
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      () => ({ upsert: vi.fn(), remove }),
+    );
+
+    const response = await handler(
+      event('DELETE /v1/endpoints/{id}', undefined, { id: 'endpoint-123' }),
+      {} as never,
+      vi.fn(),
+    );
+
+    expect(response).toMatchObject({ statusCode: 200 });
+    expect(remove).toHaveBeenCalledWith('endpoint-123');
+    await expect(store.get('endpoint-123')).resolves.toBeUndefined();
   });
 });

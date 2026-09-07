@@ -3,15 +3,17 @@ import { randomUUID } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   ScanCommand,
+  UpdateCommand,
   type NativeAttributeValue,
 } from '@aws-sdk/lib-dynamodb';
 
-import type { CreateEndpointInput, MonitoredEndpoint } from '@cloudsentinel/shared';
+import type { CreateEndpointInput, MonitoredEndpoint, UpdateEndpointInput } from '@cloudsentinel/shared';
 
-import { createEndpoint, type EndpointRepository } from './endpoint-store.js';
+import { createEndpoint, updateEndpoint, type EndpointRepository } from './endpoint-store.js';
 
 type DynamoKey = Record<string, NativeAttributeValue>;
 
@@ -76,5 +78,47 @@ export class DynamoEndpointStore implements EndpointRepository {
     }));
 
     return endpoint;
+  }
+
+  public async update(id: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint | undefined> {
+    const existing = await this.get(id);
+    if (!existing) {
+      return undefined;
+    }
+
+    const endpoint = updateEndpoint(existing, input, this.#now ?? (() => new Date()));
+    const response = await this.#client.send(new UpdateCommand({
+      TableName: this.#tableName,
+      Key: { id },
+      UpdateExpression: 'SET #name = :name, #url = :url, #interval = :interval, #enabled = :enabled, #updatedAt = :updatedAt',
+      ExpressionAttributeNames: {
+        '#name': 'name',
+        '#url': 'url',
+        '#interval': 'intervalMinutes',
+        '#enabled': 'enabled',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':name': endpoint.name,
+        ':url': endpoint.url,
+        ':interval': endpoint.intervalMinutes,
+        ':enabled': endpoint.enabled,
+        ':updatedAt': endpoint.updatedAt,
+      },
+      ConditionExpression: 'attribute_exists(id)',
+      ReturnValues: 'ALL_NEW',
+    }));
+
+    return (response.Attributes as MonitoredEndpoint | undefined) ?? endpoint;
+  }
+
+  public async delete(id: string): Promise<boolean> {
+    const response = await this.#client.send(new DeleteCommand({
+      TableName: this.#tableName,
+      Key: { id },
+      ReturnValues: 'ALL_OLD',
+    }));
+
+    return response.Attributes !== undefined;
   }
 }

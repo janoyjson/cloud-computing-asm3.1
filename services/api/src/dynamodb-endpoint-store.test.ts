@@ -1,4 +1,11 @@
-import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
@@ -65,6 +72,55 @@ describe('DynamoEndpointStore', () => {
     expect(command.input).toEqual({
       TableName: 'CloudSentinelMonitors',
       Key: { id: 'endpoint-123' },
+    });
+  });
+
+  it('updates mutable endpoint fields without replacing worker-owned state', async () => {
+    const existing = {
+      id: 'endpoint-123',
+      name: 'Status page',
+      url: 'https://example.com/status',
+      intervalMinutes: 15 as const,
+      enabled: true,
+      createdAt: '2026-09-02T01:30:00.000Z',
+      updatedAt: '2026-09-02T01:30:00.000Z',
+    };
+    const send = vi.fn()
+      .mockResolvedValueOnce({ Item: existing })
+      .mockResolvedValueOnce({ Attributes: { ...existing, intervalMinutes: 30, enabled: false } });
+    const store = new DynamoEndpointStore({
+      tableName: 'CloudSentinelMonitors',
+      client: { send } as unknown as DynamoDBDocumentClient,
+      now: () => new Date('2026-09-07T09:00:00.000Z'),
+    });
+
+    const updated = await store.update('endpoint-123', { intervalMinutes: 30, enabled: false });
+
+    expect(updated).toMatchObject({ intervalMinutes: 30, enabled: false });
+    const command = send.mock.calls[1]?.[0];
+    expect(command).toBeInstanceOf(UpdateCommand);
+    expect(command.input.UpdateExpression).not.toContain('latestCheck');
+    expect(command.input).toMatchObject({
+      TableName: 'CloudSentinelMonitors',
+      Key: { id: 'endpoint-123' },
+      ConditionExpression: 'attribute_exists(id)',
+    });
+  });
+
+  it('deletes an endpoint and reports whether it existed', async () => {
+    const send = vi.fn().mockResolvedValue({ Attributes: { id: 'endpoint-123' } });
+    const store = new DynamoEndpointStore({
+      tableName: 'CloudSentinelMonitors',
+      client: { send } as unknown as DynamoDBDocumentClient,
+    });
+
+    await expect(store.delete('endpoint-123')).resolves.toBe(true);
+    const command = send.mock.calls[0]?.[0];
+    expect(command).toBeInstanceOf(DeleteCommand);
+    expect(command.input).toEqual({
+      TableName: 'CloudSentinelMonitors',
+      Key: { id: 'endpoint-123' },
+      ReturnValues: 'ALL_OLD',
     });
   });
 });

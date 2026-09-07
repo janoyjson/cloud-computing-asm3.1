@@ -31,6 +31,13 @@ export interface CreateEndpointInput {
   intervalMinutes: MonitoringIntervalMinutes;
 }
 
+export interface UpdateEndpointInput {
+  name?: string;
+  url?: string;
+  intervalMinutes?: MonitoringIntervalMinutes;
+  enabled?: boolean;
+}
+
 export interface Incident {
   id: string;
   endpointId: string;

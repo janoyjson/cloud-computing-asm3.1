@@ -1,13 +1,18 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 
-import type { CreateEndpointInput } from '@cloudsentinel/shared';
+import type { CreateEndpointInput, UpdateEndpointInput } from '@cloudsentinel/shared';
 
 import { EcsCheckTaskStarter, type CheckTaskStarter } from './check-task-starter.js';
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
 import { ValidationError, type EndpointRepository } from './endpoint-store.js';
+import {
+  EventBridgeRecurringCheckScheduler,
+  type RecurringCheckScheduler,
+} from './recurring-check-scheduler.js';
 
 let configuredStore: EndpointRepository | undefined;
 let configuredTaskStarter: CheckTaskStarter | undefined;
+let configuredRecurringScheduler: RecurringCheckScheduler | undefined;
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -52,6 +57,24 @@ function getConfiguredTaskStarter(): CheckTaskStarter {
   return configuredTaskStarter;
 }
 
+function getConfiguredRecurringScheduler(): RecurringCheckScheduler {
+  if (configuredRecurringScheduler) {
+    return configuredRecurringScheduler;
+  }
+
+  configuredRecurringScheduler = new EventBridgeRecurringCheckScheduler({
+    clusterArn: requiredEnvironment('ECS_CLUSTER_ARN'),
+    taskDefinitionArn: requiredEnvironment('ECS_TASK_DEFINITION_ARN'),
+    roleArn: requiredEnvironment('SCHEDULER_EXECUTION_ROLE_ARN'),
+    subnets: requiredEnvironmentList('ECS_SUBNET_IDS'),
+    securityGroups: requiredEnvironmentList('ECS_SECURITY_GROUP_IDS'),
+    containerName: process.env.ECS_CONTAINER_NAME?.trim() || 'monitor-worker',
+    assignPublicIp: process.env.ECS_ASSIGN_PUBLIC_IP?.trim().toLowerCase() !== 'false',
+    groupName: process.env.SCHEDULER_GROUP_NAME?.trim() || 'default',
+  });
+  return configuredRecurringScheduler;
+}
+
 function json(statusCode: number, body: unknown) {
   return {
     statusCode,
@@ -65,6 +88,7 @@ function json(statusCode: number, body: unknown) {
 export function createHandler(
   getStore: () => EndpointRepository,
   getTaskStarter: () => CheckTaskStarter = getConfiguredTaskStarter,
+  getRecurringScheduler: () => RecurringCheckScheduler = getConfiguredRecurringScheduler,
 ): APIGatewayProxyHandlerV2 {
   return async (event) => {
   const routeKey = event.routeKey;
@@ -80,7 +104,50 @@ export function createHandler(
 
       if (routeKey === 'POST /v1/endpoints') {
         const input = JSON.parse(event.body ?? '{}') as CreateEndpointInput;
-        return json(201, await getStore().create(input));
+        const endpoint = await getStore().create(input);
+
+        try {
+          await getRecurringScheduler().upsert(endpoint);
+        } catch (error) {
+          await getStore().delete(endpoint.id).catch((rollbackError: unknown) => {
+            console.error('Could not roll back endpoint after schedule creation failed', rollbackError);
+          });
+          throw error;
+        }
+
+        return json(201, endpoint);
+      }
+
+      if (routeKey === 'PATCH /v1/endpoints/{id}') {
+        const endpointId = event.pathParameters?.id?.trim();
+        if (!endpointId) {
+          throw new ValidationError('Endpoint ID is required.');
+        }
+
+        const input = JSON.parse(event.body ?? '{}') as UpdateEndpointInput;
+        const endpoint = await getStore().update(endpointId, input);
+        if (!endpoint) {
+          return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
+        }
+
+        await getRecurringScheduler().upsert(endpoint);
+        return json(200, endpoint);
+      }
+
+      if (routeKey === 'DELETE /v1/endpoints/{id}') {
+        const endpointId = event.pathParameters?.id?.trim();
+        if (!endpointId) {
+          throw new ValidationError('Endpoint ID is required.');
+        }
+
+        const endpoint = await getStore().get(endpointId);
+        if (!endpoint) {
+          return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
+        }
+
+        await getRecurringScheduler().remove(endpointId);
+        await getStore().delete(endpointId);
+        return json(200, { id: endpointId, status: 'DELETED' });
       }
 
       if (routeKey === 'POST /v1/endpoints/{id}/checks') {
@@ -113,4 +180,8 @@ export function createHandler(
   };
 }
 
-export const handler = createHandler(getConfiguredStore, getConfiguredTaskStarter);
+export const handler = createHandler(
+  getConfiguredStore,
+  getConfiguredTaskStarter,
+  getConfiguredRecurringScheduler,
+);
