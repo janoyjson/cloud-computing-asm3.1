@@ -25,6 +25,18 @@ const apiClient = apiBaseUrl ? new CloudSentinelApiClient(apiBaseUrl) : undefine
 const isAwsMode = apiClient !== undefined;
 const checkPollIntervalMs = 5_000;
 const checkPollAttempts = 12;
+const navigationItems = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'endpoints', label: 'Endpoints' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'architecture', label: 'Architecture' },
+] as const;
+const currentMilestone = {
+  phase: 6,
+  totalPhases: 8,
+  label: 'Security & resilience',
+  progressPercent: 75,
+};
 
 const initialForm: CreateEndpointInput = {
   name: '',
@@ -49,6 +61,14 @@ function StatusBadge({ endpoint }: { endpoint: MonitoredEndpoint }) {
   return <span className={`status status-${state.toLowerCase()}`}>{state}</span>;
 }
 
+function formatCurrentDate() {
+  return new Intl.DateTimeFormat('en-AU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date());
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
@@ -66,6 +86,20 @@ export default function App() {
   const [analytics, setAnalytics] = useState<AnalyticsOverview | undefined>();
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [performanceHistory, setPerformanceHistory] = useState<Record<string, PerformanceResult[]>>({});
+  const [activeSection, setActiveSection] = useState('overview');
+
+  useEffect(() => {
+    const updateActiveSection = () => {
+      const hash = window.location.hash.slice(1);
+      if (navigationItems.some((item) => item.id === hash)) {
+        setActiveSection(hash);
+      }
+    };
+
+    updateActiveSection();
+    window.addEventListener('hashchange', updateActiveSection);
+    return () => window.removeEventListener('hashchange', updateActiveSection);
+  }, []);
 
   useEffect(() => {
     if (!apiClient) {
@@ -243,23 +277,39 @@ export default function App() {
           </span>
         </a>
         <nav aria-label="Primary navigation">
-          <a className="nav-active" href="#overview">Overview</a>
-          <a href="#endpoints">Endpoints</a>
-          <a href="#activity">Activity</a>
-          <a href="#architecture">Architecture</a>
+          {navigationItems.map((item) => (
+            <a
+              className={activeSection === item.id ? 'nav-active' : undefined}
+              href={`#${item.id}`}
+              aria-current={activeSection === item.id ? 'page' : undefined}
+              onClick={() => setActiveSection(item.id)}
+              key={item.id}
+            >
+              {item.label}
+            </a>
+          ))}
         </nav>
         <div className="phase-card">
           <span>Current milestone</span>
-          <strong>Phase 3 of 8</strong>
-          <div className="progress"><span /></div>
-          <small>Container monitoring</small>
+          <strong>Phase {currentMilestone.phase} of {currentMilestone.totalPhases}</strong>
+          <div
+            className="progress"
+            role="progressbar"
+            aria-label="Project milestone progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={currentMilestone.progressPercent}
+          >
+            <span style={{ width: `${currentMilestone.progressPercent}%` }} />
+          </div>
+          <small>{currentMilestone.label}</small>
         </div>
       </aside>
 
       <main id="top">
         <header className="topbar">
           <div>
-            <span className="eyebrow">Wednesday, 26 August</span>
+            <span className="eyebrow">{formatCurrentDate()}</span>
             <h1>Deployment overview</h1>
           </div>
           <span className="environment"><i /> {isAwsMode ? 'AWS live environment' : 'Local fallback environment'}</span>
