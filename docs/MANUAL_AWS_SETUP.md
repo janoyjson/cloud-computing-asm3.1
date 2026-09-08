@@ -241,6 +241,7 @@ Create these resources manually in `us-east-1` after at least one worker result 
 2. In Glue, create an on-demand crawler named `cloudsentinel-checks-crawler` using `LabRole`, with an S3 data source at `s3://<results-bucket>/checks/` and the `cloudsentinel` target database. Run the crawler and confirm that it creates a checks table (set `ATHENA_CHECKS_TABLE` to the exact table name shown by Glue).
 3. In Athena settings, set the query result location to `s3://<results-bucket>/athena/`. Keep this prefix private and encrypted by the bucket defaults.
 4. Confirm the crawler exposes the JSON fields as `checkedat`, `state`, and `responsetimems`; the Lambda query uses those names because Glue normalizes JSON field names.
+   The worker path also contains an `endpointId=...` partition. Glue may therefore report `endpointid` twice (one JSON column and one partition column), which Athena rejects as `HIVE_INVALID_METADATA`. If that occurs, open the `checks` table schema, remove only the duplicate JSON `endpointid` column, and keep the `endpointid` partition column. Do not delete the partition key or the S3 data. Avoid rerunning the crawler after this manual schema correction unless the crawler's schema-change policy is configured not to re-add the duplicate.
 5. Add these Lambda environment variables:
 
 ```text
