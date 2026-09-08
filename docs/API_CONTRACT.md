@@ -89,6 +89,39 @@ Deletes the recurring schedule before deleting the DynamoDB endpoint record. Ret
 }
 ```
 
+## Phase 5 implemented contracts
+
+### `POST /endpoints/{id}/performance`
+
+Starts a mobile Google PageSpeed Insights analysis for the endpoint URL, persists the result in `CloudSentinelPerformance`, and returns `201 Created` with the stored result:
+
+```json
+{
+  "endpointId": "endpoint-id",
+  "measuredAt": "2026-09-08T00:00:00.000Z",
+  "strategy": "MOBILE",
+  "performanceScore": 91,
+  "accessibilityScore": 88,
+  "bestPracticesScore": 77,
+  "seoScore": 100,
+  "firstContentfulPaintMs": 1234.56,
+  "largestContentfulPaintMs": 2345.67,
+  "cumulativeLayoutShift": 0.12
+}
+```
+
+The operation is synchronous and protected by a 25-second upstream timeout. The deployed Lambda timeout must therefore be at least 30 seconds. `PAGESPEED_API_KEY` is optional.
+
+### `GET /endpoints/{id}/performance`
+
+Returns the newest persisted PageSpeed results first:
+
+```json
+{
+  "items": []
+}
+```
+
 ## Planned contracts
 
 | Method | Path | Purpose | Target phase |
@@ -96,8 +129,6 @@ Deletes the recurring schedule before deleting the DynamoDB endpoint record. Ret
 | `GET` | `/endpoints/{id}` | Read monitor details | 2 |
 | `GET` | `/endpoints/{id}/checks` | Read recent check results | 3 |
 | `GET` | `/endpoints/{id}/incidents` | Read incident history | 4 |
-| `POST` | `/endpoints/{id}/performance` | Start PageSpeed analysis | 5 |
-| `GET` | `/endpoints/{id}/performance` | Read performance history | 5 |
 | `GET` | `/analytics/overview` | Run/read Athena dashboard analytics | 5 |
 
 Long-running operations return `202 Accepted` with an operation or task identifier. The dashboard polls the appropriate read endpoint instead of holding API Gateway requests open.

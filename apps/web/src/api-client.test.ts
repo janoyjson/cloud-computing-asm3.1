@@ -78,4 +78,27 @@ describe('CloudSentinelApiClient', () => {
       { method: 'POST' },
     );
   });
+
+  it('runs a PageSpeed performance check for an encoded endpoint ID', async () => {
+    const result = {
+      endpointId: 'endpoint/123',
+      measuredAt: '2026-09-08T00:00:00.000Z',
+      strategy: 'MOBILE',
+      performanceScore: 91,
+      accessibilityScore: 88,
+      bestPracticesScore: 77,
+      seoScore: 100,
+    };
+    const fetchClient = vi.fn().mockResolvedValue(new Response(JSON.stringify(result), { status: 201 }));
+    const client = new CloudSentinelApiClient(
+      'https://abc.execute-api.us-east-1.amazonaws.com',
+      fetchClient,
+    );
+
+    await expect(client.runPerformance('endpoint/123')).resolves.toEqual(result);
+    expect(fetchClient).toHaveBeenCalledWith(
+      'https://abc.execute-api.us-east-1.amazonaws.com/v1/endpoints/endpoint%2F123/performance',
+      { method: 'POST' },
+    );
+  });
 });

@@ -1,4 +1,4 @@
-import type { CreateEndpointInput, MonitoredEndpoint } from '@cloudsentinel/shared';
+import type { CreateEndpointInput, MonitoredEndpoint, PerformanceResult } from '@cloudsentinel/shared';
 
 interface EndpointListResponse {
   items: MonitoredEndpoint[];
@@ -7,6 +7,10 @@ interface EndpointListResponse {
 interface StartCheckResponse {
   taskArn: string;
   status: 'STARTED';
+}
+
+interface PerformanceListResponse {
+  items: PerformanceResult[];
 }
 
 interface ApiErrorResponse {
@@ -51,6 +55,17 @@ export class CloudSentinelApiClient {
     return this.#request<StartCheckResponse>(`/v1/endpoints/${encodeURIComponent(endpointId)}/checks`, {
       method: 'POST',
     });
+  }
+
+  public runPerformance(endpointId: string): Promise<PerformanceResult> {
+    return this.#request<PerformanceResult>(`/v1/endpoints/${encodeURIComponent(endpointId)}/performance`, {
+      method: 'POST',
+    });
+  }
+
+  public listPerformance(endpointId: string): Promise<PerformanceResult[]> {
+    return this.#request<PerformanceListResponse>(`/v1/endpoints/${encodeURIComponent(endpointId)}/performance`)
+      .then((response) => response.items);
   }
 
   async #request<T>(path: string, init?: RequestInit): Promise<T> {

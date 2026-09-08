@@ -60,6 +60,7 @@ export default function App() {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runningEndpointIds, setRunningEndpointIds] = useState<ReadonlySet<string>>(new Set());
+  const [runningPerformanceIds, setRunningPerformanceIds] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     if (!apiClient) {
@@ -169,6 +170,32 @@ export default function App() {
     setNotice(`Mock check completed for ${endpointName ?? 'endpoint'} in 128 ms.`);
   }
 
+  async function runPerformance(endpointId: string) {
+    const endpoint = endpoints.find((candidate) => candidate.id === endpointId);
+    if (!apiClient) {
+      setNotice('PageSpeed checks require the AWS-connected dashboard.');
+      return;
+    }
+
+    setRunningPerformanceIds((current) => new Set(current).add(endpointId));
+    try {
+      const result = await apiClient.runPerformance(endpointId);
+      setNotice(
+        `${endpoint?.name ?? endpointId}: PageSpeed mobile scores — ` +
+        `performance ${result.performanceScore}, accessibility ${result.accessibilityScore}, ` +
+        `best practices ${result.bestPracticesScore}, SEO ${result.seoScore}.`,
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The PageSpeed check could not be completed.');
+    } finally {
+      setRunningPerformanceIds((current) => {
+        const next = new Set(current);
+        next.delete(endpointId);
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -240,6 +267,7 @@ export default function App() {
             <div className="endpoint-list">
               {endpoints.map((endpoint) => {
                 const isRunning = runningEndpointIds.has(endpoint.id);
+                const isPerformanceRunning = runningPerformanceIds.has(endpoint.id);
                 return <div className="endpoint-row" key={endpoint.id}>
                   <div className={`pulse pulse-${getEndpointState(endpoint).toLowerCase()}`} />
                   <div className="endpoint-identity">
@@ -251,14 +279,24 @@ export default function App() {
                     <small>{formatTime(endpoint.latestCheck?.checkedAt)}</small>
                   </div>
                   <StatusBadge endpoint={endpoint} />
-                  <button
-                    className="button-secondary"
-                    disabled={isRunning}
-                    type="button"
-                    onClick={() => void runCheck(endpoint.id)}
-                  >
-                    {isRunning ? 'Checking...' : 'Run check'}
-                  </button>
+                  <div className="endpoint-actions">
+                    <button
+                      className="button-secondary"
+                      disabled={isRunning}
+                      type="button"
+                      onClick={() => void runCheck(endpoint.id)}
+                    >
+                      {isRunning ? 'Checking...' : 'Run check'}
+                    </button>
+                    <button
+                      className="button-secondary"
+                      disabled={isPerformanceRunning}
+                      type="button"
+                      onClick={() => void runPerformance(endpoint.id)}
+                    >
+                      {isPerformanceRunning ? 'Measuring...' : 'PageSpeed'}
+                    </button>
+                  </div>
                 </div>
               })}
             </div>

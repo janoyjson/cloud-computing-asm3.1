@@ -22,7 +22,13 @@ All tables use Standard table class, on-demand capacity, AWS-owned encryption, n
 | `CloudSentinelChecks` | `endpointId` (String) | `checkedAt` (String) | Created manually |
 | `CloudSentinelIncidents` | `endpointId` (String) | `openedAt` (String) | Created manually |
 
-The performance table is deferred to Phase 5.
+Create the Phase 5 performance table manually:
+
+| Table | Partition key | Sort key | Status |
+|---|---|---|---|
+| `CloudSentinelPerformance` | `endpointId` (String) | `measuredAt` (String) | Created manually |
+
+Use the same Standard table class, on-demand capacity, AWS-owned encryption, no secondary indexes, and deletion protection off settings as the other lab tables.
 
 ## Phase 2 Lambda function
 
@@ -37,7 +43,7 @@ Create the function only after the Lambda package has passed its local tests.
 7. In **Code source**, choose **Upload from** -> **.zip file** and upload `artifacts/cloudsentinel-api.zip`.
 8. In **Runtime settings**, set the handler to `index.handler`.
 9. Under **Configuration** -> **Environment variables**, add `MONITORS_TABLE_NAME=CloudSentinelMonitors`.
-10. Under **General configuration**, use 256 MB memory and a 10-second timeout.
+10. Under **General configuration**, use 256 MB memory and a 10-second timeout for the Phase 2/3 API. When enabling the Phase 5 PageSpeed route, increase this timeout to at least 30 seconds because Google Lighthouse can take longer than the original short API calls.
 
 Run these direct Lambda test events before creating API Gateway:
 
@@ -209,3 +215,20 @@ NOTIFICATION_SECRET_ID=cloudsentinel/discord-webhook
 ```
 
 Keep the existing monitor, check, results-bucket, logging, role, CPU, memory, and networking settings. Update Lambda's `ECS_TASK_DEFINITION` and `ECS_TASK_DEFINITION_ARN` values to revision 3. Existing EventBridge schedules receive the new revision after the corresponding endpoint is patched; newly created endpoints use it immediately.
+
+## Phase 5 PageSpeed performance workflow
+
+After the `CloudSentinelPerformance` table is active and the local checks pass:
+
+1. Rebuild and upload `artifacts/cloudsentinel-api.zip` to `CloudSentinelApi`.
+2. Add `PERFORMANCE_TABLE_NAME=CloudSentinelPerformance` to Lambda environment variables.
+3. Optionally add `PAGESPEED_API_KEY` if you have a Google API key; leaving it absent uses the public quota.
+4. Set Lambda timeout to at least 30 seconds.
+5. In API Gateway, attach these routes to the existing Lambda integration and redeploy the stage if auto-deploy is disabled:
+
+```text
+POST /v1/endpoints/{id}/performance
+GET /v1/endpoints/{id}/performance
+```
+
+Allow `GET,POST,OPTIONS` in the API's CORS configuration. The deployed dashboard's `PageSpeed` button calls the POST route, displays the four scores, and the GET route is available for a future history chart.

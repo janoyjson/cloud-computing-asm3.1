@@ -104,6 +104,17 @@ Exit criteria:
 
 ## Phase 5 - Performance checks and historical analytics
 
+Status: In progress (local implementation complete; AWS deployment pending)
+
+Progress evidence:
+
+- Added a mobile PageSpeed Insights client requesting performance, accessibility, best-practices, and SEO categories.
+- Added timestamped `PerformanceResult` contracts and a DynamoDB repository for `CloudSentinelPerformance`.
+- Added API routes and a dashboard `PageSpeed` action with safe loading/error states.
+- Added deterministic unit tests for request construction, score parsing, persistence commands, API routes, and browser requests.
+
+Remaining deployment evidence is the manual Lambda/API Gateway update and one live dashboard measurement stored in DynamoDB.
+
 Required work:
 
 - Integrate Google PageSpeed Insights through an application workflow.

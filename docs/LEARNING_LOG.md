@@ -142,3 +142,11 @@ Before continuing, be able to explain:
 - Built the tested Node.js 24 worker image as immutable version `0.3.0` for manual ECR publication.
 - Deployed revision 3 manually and verified the complete incident workflow in AWS: outage alert, duplicate suppression, recovery alert, and incident closure.
 - Confirmed that a worker task remains successful (`exit 0`) when the monitored endpoint is down because availability failure is stored as a business result rather than treated as infrastructure failure.
+
+## 8 September 2026 - Phase 5 performance foundation
+
+- Added a PageSpeed Insights client that requests all four Lighthouse dashboard categories in one mobile analysis and converts normalized scores into readable percentages.
+- Persisted timestamped scores and selected Core Web Vitals in the manually created `CloudSentinelPerformance` DynamoDB table.
+- Added API Gateway/Lambda contracts for starting and listing performance measurements, with the dashboard invoking the POST route through an explicit PageSpeed button.
+- Added deterministic tests around repeated query parameters, upstream HTTP errors, DynamoDB composite-key queries, API behavior, and browser URL encoding.
+- Identified the deployment-specific timeout requirement: the Lambda must allow at least 30 seconds for the synchronous PageSpeed request.

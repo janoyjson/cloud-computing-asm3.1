@@ -317,6 +317,13 @@ h2 {
   border-bottom: 1px solid #edf1f5;
 }
 
+.endpoint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .endpoint-row:last-child {
   border-bottom: 0;
 }
@@ -577,7 +584,7 @@ h2 {
     padding: 15px 0;
   }
   .endpoint-meta { display: none; }
-  .button-secondary { grid-column: 2 / -1; justify-self: start; }
+  .endpoint-actions { grid-column: 2 / -1; justify-content: flex-start; }
   .activity-row { grid-template-columns: 55px minmax(100px, 1fr) 70px; }
   .activity-row span:nth-of-type(3),
   .activity-row time { display: none; }

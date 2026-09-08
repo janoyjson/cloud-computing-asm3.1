@@ -17,12 +17,12 @@ function responseBody(response: unknown): string {
 }
 
 describe('API handler', () => {
-  it('returns the Phase 3 health response without opening the repository', async () => {
+  it('returns the Phase 5 health response without opening the repository', async () => {
     const getStore = vi.fn();
     const response = await createHandler(getStore)(event('GET /v1/health'), {} as never, vi.fn());
 
     expect(response).toMatchObject({ statusCode: 200 });
-    expect(JSON.parse(responseBody(response))).toEqual({ status: 'ok', phase: 3 });
+    expect(JSON.parse(responseBody(response))).toEqual({ status: 'ok', phase: 5 });
     expect(getStore).not.toHaveBeenCalled();
   });
 
@@ -48,6 +48,55 @@ describe('API handler', () => {
     expect(created).toMatchObject({ statusCode: 201 });
     expect(JSON.parse(responseBody(listed)).items).toHaveLength(1);
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'endpoint-123' }));
+  });
+
+  it('runs and lists a PageSpeed performance measurement', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123',
+      name: 'Production API',
+      url: 'https://example.com/health',
+      intervalMinutes: 15,
+      enabled: true,
+      createdAt: '2026-09-07T00:00:00.000Z',
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const result = {
+      endpointId: 'endpoint-123',
+      measuredAt: '2026-09-08T00:00:00.000Z',
+      strategy: 'MOBILE' as const,
+      performanceScore: 91,
+      accessibilityScore: 88,
+      bestPracticesScore: 77,
+      seoScore: 100,
+    };
+    const analyze = vi.fn().mockResolvedValue(result);
+    const save = vi.fn().mockResolvedValue(undefined);
+    const list = vi.fn().mockResolvedValue([result]);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      vi.fn(),
+      () => ({ analyze }),
+      () => ({ save, list }),
+    );
+
+    const created = await handler(
+      event('POST /v1/endpoints/{id}/performance', undefined, { id: 'endpoint-123' }),
+      {} as never,
+      vi.fn(),
+    );
+    const listed = await handler(
+      event('GET /v1/endpoints/{id}/performance', undefined, { id: 'endpoint-123' }),
+      {} as never,
+      vi.fn(),
+    );
+
+    expect(created).toMatchObject({ statusCode: 201 });
+    expect(JSON.parse(responseBody(created))).toEqual(result);
+    expect(JSON.parse(responseBody(listed))).toEqual({ items: [result] });
+    expect(analyze).toHaveBeenCalledWith('endpoint-123', 'https://example.com/health');
+    expect(save).toHaveBeenCalledWith(result);
+    expect(list).toHaveBeenCalledWith('endpoint-123');
   });
 
   it('does not expose unexpected errors', async () => {

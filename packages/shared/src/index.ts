@@ -54,6 +54,19 @@ export interface Incident {
   recoveryNotificationError?: string;
 }
 
+export interface PerformanceResult {
+  endpointId: string;
+  measuredAt: string;
+  strategy: 'MOBILE';
+  performanceScore: number;
+  accessibilityScore: number;
+  bestPracticesScore: number;
+  seoScore: number;
+  firstContentfulPaintMs?: number;
+  largestContentfulPaintMs?: number;
+  cumulativeLayoutShift?: number;
+}
+
 export function getEndpointState(endpoint: MonitoredEndpoint): MonitorState {
   return endpoint.latestCheck?.state ?? 'UNKNOWN';
 }
