@@ -48,9 +48,49 @@ describe('PageSpeedClient', () => {
 
   it('fails safely when Google rejects the request', async () => {
     const fetchImplementation = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
-    const client = new PageSpeedClient({ fetchImplementation });
+    const client = new PageSpeedClient({ fetchImplementation, maxAttempts: 1 });
 
     await expect(client.analyze('endpoint-1', 'https://example.com'))
-      .rejects.toThrow('PageSpeed rejected the request with HTTP 429.');
+      .rejects.toThrow('PageSpeed rejected the request with HTTP 429 after 1 attempts.');
+  });
+
+  it('retries a transient upstream error and returns the recovered result', async () => {
+    const fetchImplementation = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        lighthouseResult: {
+          categories: {
+            performance: { score: 0.9 },
+            accessibility: { score: 0.8 },
+            'best-practices': { score: 0.7 },
+            seo: { score: 0.6 },
+          },
+        },
+      }), { status: 200 }));
+    const client = new PageSpeedClient({
+      fetchImplementation,
+      retryDelayMs: 0,
+      now: () => new Date('2026-09-08T00:00:00.000Z'),
+    });
+
+    await expect(client.analyze('endpoint-1', 'https://example.com')).resolves.toMatchObject({
+      endpointId: 'endpoint-1',
+      performanceScore: 90,
+      accessibilityScore: 80,
+      bestPracticesScore: 70,
+      seoScore: 60,
+    });
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a timeout once before returning a clear failure', async () => {
+    const fetchImplementation = vi.fn()
+      .mockRejectedValueOnce(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      .mockRejectedValueOnce(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+    const client = new PageSpeedClient({ fetchImplementation, retryDelayMs: 0 });
+
+    await expect(client.analyze('endpoint-1', 'https://example.com'))
+      .rejects.toThrow('PageSpeed request failed after 2 attempts: The operation was aborted due to timeout');
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
   });
 });

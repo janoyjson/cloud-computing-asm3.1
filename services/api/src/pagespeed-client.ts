@@ -6,6 +6,10 @@ interface PageSpeedClientOptions {
   apiKey?: string;
   fetchImplementation?: FetchImplementation;
   now?: () => Date;
+  attemptTimeoutMs?: number;
+  maxAttempts?: number;
+  retryDelayMs?: number;
+  sleepImplementation?: (milliseconds: number) => Promise<void>;
 }
 
 interface PageSpeedResponse {
@@ -32,11 +36,19 @@ export class PageSpeedClient {
   readonly #apiKey: string | undefined;
   readonly #fetch: FetchImplementation;
   readonly #now: () => Date;
+  readonly #attemptTimeoutMs: number;
+  readonly #maxAttempts: number;
+  readonly #retryDelayMs: number;
+  readonly #sleep: (milliseconds: number) => Promise<void>;
 
   public constructor(options: PageSpeedClientOptions = {}) {
     this.#apiKey = options.apiKey;
     this.#fetch = options.fetchImplementation ?? fetch;
     this.#now = options.now ?? (() => new Date());
+    this.#attemptTimeoutMs = options.attemptTimeoutMs ?? 12_000;
+    this.#maxAttempts = options.maxAttempts ?? 2;
+    this.#retryDelayMs = options.retryDelayMs ?? 250;
+    this.#sleep = options.sleepImplementation ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   }
 
   public async analyze(endpointId: string, url: string): Promise<PerformanceResult> {
@@ -51,12 +63,42 @@ export class PageSpeedClient {
       requestUrl.searchParams.set('key', this.#apiKey);
     }
 
-    const response = await this.#fetch(requestUrl, {
-      method: 'GET',
-      signal: AbortSignal.timeout(25_000),
-    });
+    let response: Response | undefined;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
+      response = undefined;
+      lastError = undefined;
+      try {
+        response = await this.#fetch(requestUrl, {
+          method: 'GET',
+          signal: AbortSignal.timeout(this.#attemptTimeoutMs),
+        });
+
+        if (response.ok || !this.#isRetryableStatus(response.status) || attempt === this.#maxAttempts) {
+          break;
+        }
+      } catch (error) {
+        lastError = error;
+        if (!this.#isRetryableError(error)) {
+          throw error;
+        }
+        if (attempt === this.#maxAttempts) break;
+      }
+
+      await this.#sleep(this.#retryDelayMs * attempt);
+    }
+
+    if (lastError) {
+      throw new Error(`PageSpeed request failed after ${this.#maxAttempts} attempts: ${this.#errorMessage(lastError)}`);
+    }
+
+    if (!response) {
+      throw new Error('PageSpeed did not return a response.');
+    }
+
     if (!response.ok) {
-      throw new Error(`PageSpeed rejected the request with HTTP ${response.status}.`);
+      throw new Error(`PageSpeed rejected the request with HTTP ${response.status} after ${this.#maxAttempts} attempts.`);
     }
 
     const payload = await response.json() as PageSpeedResponse;
@@ -73,5 +115,18 @@ export class PageSpeedClient {
       largestContentfulPaintMs: metric(lighthouse?.audits, 'largest-contentful-paint'),
       cumulativeLayoutShift: metric(lighthouse?.audits, 'cumulative-layout-shift'),
     };
+  }
+
+  #isRetryableStatus(status: number): boolean {
+    return status === 429 || status >= 500;
+  }
+
+  #isRetryableError(error: unknown): boolean {
+    return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+      || error instanceof TypeError;
+  }
+
+  #errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'network error';
   }
 }
