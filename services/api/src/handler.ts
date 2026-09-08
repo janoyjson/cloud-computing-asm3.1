@@ -138,6 +138,14 @@ function json(statusCode: number, body: unknown) {
   };
 }
 
+function parseJsonBody(event: Parameters<APIGatewayProxyHandlerV2>[0]): unknown {
+  const body = event.body ?? '{}';
+  if (body.length > 16_384) {
+    throw new ValidationError('Request body must be 16 KB or smaller.');
+  }
+  return JSON.parse(body);
+}
+
 export function createHandler(
   getStore: () => EndpointRepository,
   getTaskStarter: () => CheckTaskStarter = getConfiguredTaskStarter,
@@ -160,7 +168,7 @@ export function createHandler(
       }
 
       if (routeKey === 'POST /v1/endpoints') {
-        const input = JSON.parse(event.body ?? '{}') as CreateEndpointInput;
+        const input = parseJsonBody(event) as CreateEndpointInput;
         await validateEndpointUrl(input.url, validatePublicUrl);
         const endpoint = await getStore().create(input);
 
@@ -182,7 +190,7 @@ export function createHandler(
           throw new ValidationError('Endpoint ID is required.');
         }
 
-        const input = JSON.parse(event.body ?? '{}') as UpdateEndpointInput;
+        const input = parseJsonBody(event) as UpdateEndpointInput;
         if (input.url !== undefined) await validateEndpointUrl(input.url, validatePublicUrl);
         const endpoint = await getStore().update(endpointId, input);
         if (!endpoint) {

@@ -32,6 +32,8 @@ export interface EndpointRepository {
   delete(id: string): Promise<boolean>;
 }
 
+export const MAX_MONITOR_URL_LENGTH = 2_048;
+
 export function createEndpoint(
   input: CreateEndpointInput,
   dependencies: StoreDependencies = defaultDependencies,
@@ -47,6 +49,10 @@ export function createEndpoint(
 
   if (typeof input.url !== 'string') {
     throw new ValidationError('URL must be an absolute HTTP or HTTPS URL.');
+  }
+
+  if (input.url.length > MAX_MONITOR_URL_LENGTH) {
+    throw new ValidationError(`URL must be ${MAX_MONITOR_URL_LENGTH} characters or fewer.`);
   }
 
   let parsedUrl: URL;

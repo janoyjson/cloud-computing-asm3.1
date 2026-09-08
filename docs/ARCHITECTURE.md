@@ -14,6 +14,45 @@ Authentication, multi-team permissions, SMS/email channels, geographic probes, a
 
 ## Planned deployed flows
 
+### Assessment flow diagram
+
+```mermaid
+flowchart LR
+  Browser -->|HTTPS| API[API Gateway]
+  Browser -->|static assets| S3Web[S3 website bucket]
+  API --> Lambda[CloudSentinelApi Lambda]
+  Lambda --> Monitors[(DynamoDB Monitors)]
+  Lambda --> Scheduler[EventBridge Scheduler]
+  Scheduler --> ECS[ECS Fargate worker]
+  Lambda --> PageSpeed[PageSpeed Insights]
+  Lambda --> Athena[Athena]
+  Athena --> Glue[Glue Catalog]
+  Glue --> S3Checks[(S3 checks/ history)]
+  ECS --> Checks[(DynamoDB Checks)]
+  ECS --> S3Checks
+  ECS --> Incidents[(DynamoDB Incidents)]
+  ECS --> Discord[Discord webhook]
+  Lambda --> Performance[(DynamoDB Performance)]
+```
+
+### State-transition evidence
+
+```mermaid
+sequenceDiagram
+  participant U as Dashboard
+  participant A as API Gateway/Lambda
+  participant E as ECS Fargate
+  participant D as DynamoDB/S3
+  participant W as Discord
+  U->>A: Run check
+  A->>E: RunTask with endpoint overrides
+  E->>D: Save UP/DOWN check and latest state
+  E->>D: Open or resolve incident on transition
+  E->>W: Send one outage/recovery notification
+  U->>A: PageSpeed or analytics request
+  A->>D: Persist result or return Athena aggregates
+```
+
 ### Interactive application
 
 ```text

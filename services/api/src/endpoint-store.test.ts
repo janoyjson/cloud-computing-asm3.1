@@ -48,6 +48,15 @@ describe('EndpointStore', () => {
     })).rejects.toThrow('Interval must be 5, 15, 30, or 60 minutes.');
   });
 
+  it('rejects an oversized URL before persistence', async () => {
+    const store = new EndpointStore([], dependencies);
+    await expect(store.create({
+      name: 'Oversized',
+      url: `https://example.com/${'x'.repeat(2_050)}`,
+      intervalMinutes: 15,
+    })).rejects.toThrow('URL must be 2048 characters or fewer.');
+  });
+
   it('updates and deletes an existing endpoint', async () => {
     const store = new EndpointStore([], dependencies);
     await store.create({
