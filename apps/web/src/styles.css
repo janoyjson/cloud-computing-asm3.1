@@ -420,6 +420,31 @@ h2 {
 .analytics-grid strong { font-size: 18px; }
 .analytics-grid span { margin-top: 5px; color: #7b879a; font-size: 10px; }
 
+.performance-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.performance-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.45fr) 1fr;
+  gap: 20px;
+  padding: 12px 0;
+  border-top: 1px solid #edf1f5;
+}
+
+.performance-row strong,
+.performance-row small { display: block; }
+.performance-row small { margin-top: 5px; color: #98a3b1; font-size: 10px; }
+
+.score-bars { display: grid; gap: 7px; }
+.score-bar { display: grid; grid-template-columns: 92px 1fr 28px; align-items: center; gap: 8px; }
+.score-bar em { color: #7b879a; font-size: 10px; font-style: normal; }
+.score-bar i { height: 6px; overflow: hidden; border-radius: 99px; background: #e8eef2; }
+.score-bar b { display: block; height: 100%; border-radius: inherit; background: #1a9b8a; }
+.score-bar strong { color: #315467; font-size: 10px; text-align: right; }
+
 .button-primary:hover,
 .button-secondary:hover {
   transform: translateY(-1px);
@@ -606,6 +631,7 @@ h2 {
   }
   .endpoint-meta { display: none; }
   .endpoint-actions { grid-column: 2 / -1; justify-content: flex-start; }
+  .performance-row { grid-template-columns: 1fr; gap: 10px; }
   .activity-row { grid-template-columns: 55px minmax(100px, 1fr) 70px; }
   .activity-row span:nth-of-type(3),
   .activity-row time { display: none; }

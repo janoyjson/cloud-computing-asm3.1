@@ -9,6 +9,7 @@ import {
   type CreateEndpointInput,
   type MonitoredEndpoint,
   type MonitoringIntervalMinutes,
+  type PerformanceResult,
 } from '@cloudsentinel/shared';
 
 import {
@@ -64,6 +65,7 @@ export default function App() {
   const [runningPerformanceIds, setRunningPerformanceIds] = useState<ReadonlySet<string>>(new Set());
   const [analytics, setAnalytics] = useState<AnalyticsOverview | undefined>();
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [performanceHistory, setPerformanceHistory] = useState<Record<string, PerformanceResult[]>>({});
 
   useEffect(() => {
     if (!apiClient) {
@@ -72,10 +74,17 @@ export default function App() {
 
     let active = true;
     apiClient.listEndpoints()
-      .then((items) => {
+      .then(async (items) => {
         if (active) {
           setEndpoints(items);
           setNotice(`Connected to AWS. Loaded ${items.length} monitored endpoints.`);
+        }
+        const history = await Promise.all(items.map(async (endpoint) => [
+          endpoint.id,
+          await apiClient.listPerformance(endpoint.id),
+        ] as const));
+        if (active) {
+          setPerformanceHistory(Object.fromEntries(history));
         }
       })
       .catch((error: unknown) => {
@@ -183,6 +192,10 @@ export default function App() {
     setRunningPerformanceIds((current) => new Set(current).add(endpointId));
     try {
       const result = await apiClient.runPerformance(endpointId);
+      setPerformanceHistory((current) => ({
+        ...current,
+        [endpointId]: [result, ...(current[endpointId] ?? []).filter((item) => item.measuredAt !== result.measuredAt)],
+      }));
       setNotice(
         `${endpoint?.name ?? endpointId}: PageSpeed mobile scores — ` +
         `performance ${result.performanceScore}, accessibility ${result.accessibilityScore}, ` +
@@ -425,6 +438,43 @@ export default function App() {
                 <div><strong>{analytics.incidentCount}</strong><span>Incidents</span></div>
               </div>
             )}
+          </article>
+
+          <article id="performance" className="panel performance-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Persisted measurements</span>
+                <h2>PageSpeed history</h2>
+              </div>
+              <span className="count-pill">Mobile</span>
+            </div>
+            {Object.values(performanceHistory).every((items) => items.length === 0) && (
+              <p className="empty-state">Run PageSpeed beside an endpoint to build its score history.</p>
+            )}
+            <div className="performance-list" aria-label="Persisted PageSpeed measurements">
+              {endpoints.flatMap((endpoint) => (performanceHistory[endpoint.id] ?? []).slice(0, 3).map((result) => (
+                <div className="performance-row" key={`${endpoint.id}-${result.measuredAt}`}>
+                  <div>
+                    <strong>{endpoint.name}</strong>
+                    <small>{formatTime(result.measuredAt)}</small>
+                  </div>
+                  <div className="score-bars">
+                    {[
+                      ['Performance', result.performanceScore],
+                      ['Accessibility', result.accessibilityScore],
+                      ['Best practices', result.bestPracticesScore],
+                      ['SEO', result.seoScore],
+                    ].map(([label, value]) => (
+                      <span className="score-bar" key={label as string}>
+                        <em>{label}</em>
+                        <i><b style={{ width: `${value}%` }} /></i>
+                        <strong>{value}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )))}
+            </div>
           </article>
 
           <article id="architecture" className="panel architecture-panel">
