@@ -1,4 +1,4 @@
-import type { CreateEndpointInput, MonitoredEndpoint, PerformanceResult } from '@cloudsentinel/shared';
+import type { AnalyticsOverview, CreateEndpointInput, MonitoredEndpoint, PerformanceResult } from '@cloudsentinel/shared';
 
 interface EndpointListResponse {
   items: MonitoredEndpoint[];
@@ -66,6 +66,14 @@ export class CloudSentinelApiClient {
   public listPerformance(endpointId: string): Promise<PerformanceResult[]> {
     return this.#request<PerformanceListResponse>(`/v1/endpoints/${encodeURIComponent(endpointId)}/performance`)
       .then((response) => response.items);
+  }
+
+  public getAnalyticsOverview(range?: { from?: string; to?: string }): Promise<AnalyticsOverview> {
+    const query = new URLSearchParams();
+    if (range?.from) query.set('from', range.from);
+    if (range?.to) query.set('to', range.to);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.#request<AnalyticsOverview>(`/v1/analytics/overview${suffix}`);
   }
 
   async #request<T>(path: string, init?: RequestInit): Promise<T> {

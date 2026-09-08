@@ -232,3 +232,29 @@ GET /v1/endpoints/{id}/performance
 ```
 
 Allow `GET,POST,OPTIONS` in the API's CORS configuration. The deployed dashboard's `PageSpeed` button calls the POST route, displays the four scores, and the GET route is available for a future history chart.
+
+## Phase 5 Glue and Athena analytics workflow
+
+Create these resources manually in `us-east-1` after at least one worker result exists in the results bucket:
+
+1. In Athena, create a database named `cloudsentinel`.
+2. In Glue, create an on-demand crawler named `cloudsentinel-checks-crawler` using `LabRole`, with an S3 data source at `s3://<results-bucket>/checks/` and the `cloudsentinel` target database. Run the crawler and confirm that it creates a checks table (set `ATHENA_CHECKS_TABLE` to the exact table name shown by Glue).
+3. In Athena settings, set the query result location to `s3://<results-bucket>/athena/`. Keep this prefix private and encrypted by the bucket defaults.
+4. Confirm the crawler exposes the JSON fields as `checkedat`, `state`, and `responsetimems`; the Lambda query uses those names because Glue normalizes JSON field names.
+5. Add these Lambda environment variables:
+
+```text
+ATHENA_DATABASE=cloudsentinel
+ATHENA_CHECKS_TABLE=<Glue checks table name>
+ATHENA_OUTPUT_LOCATION=s3://<results-bucket>/athena/
+INCIDENTS_TABLE_NAME=CloudSentinelIncidents
+```
+
+6. Set the Lambda timeout to at least 35 seconds. Athena startup plus result polling can exceed the PageSpeed-only timeout.
+7. In API Gateway, attach the route below to `CloudSentinelApi`, enable invoke permission, and redeploy if required:
+
+```text
+GET /v1/analytics/overview
+```
+
+Allow `GET,OPTIONS` in CORS. The dashboard's **Load analytics** button requests the previous 24 hours and displays uptime, check count, average response time, and incident count.

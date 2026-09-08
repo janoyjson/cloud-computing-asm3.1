@@ -122,6 +122,23 @@ Returns the newest persisted PageSpeed results first:
 }
 ```
 
+### `GET /analytics/overview`
+
+Runs the Athena checks query for the requested ISO-8601 range. If `from` and `to` are omitted, Lambda uses the previous 24 hours. The response includes check totals, uptime, average response time, and incident count:
+
+```json
+{
+  "from": "2026-09-07T00:00:00.000Z",
+  "to": "2026-09-08T00:00:00.000Z",
+  "totalChecks": 4,
+  "upChecks": 3,
+  "downChecks": 1,
+  "uptimePercent": 75,
+  "averageResponseTimeMs": 120.5,
+  "incidentCount": 1
+}
+```
+
 ## Planned contracts
 
 | Method | Path | Purpose | Target phase |
@@ -129,7 +146,6 @@ Returns the newest persisted PageSpeed results first:
 | `GET` | `/endpoints/{id}` | Read monitor details | 2 |
 | `GET` | `/endpoints/{id}/checks` | Read recent check results | 3 |
 | `GET` | `/endpoints/{id}/incidents` | Read incident history | 4 |
-| `GET` | `/analytics/overview` | Run/read Athena dashboard analytics | 5 |
 
 Long-running operations return `202 Accepted` with an operation or task identifier. The dashboard polls the appropriate read endpoint instead of holding API Gateway requests open.
 

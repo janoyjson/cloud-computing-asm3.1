@@ -150,3 +150,9 @@ Before continuing, be able to explain:
 - Added API Gateway/Lambda contracts for starting and listing performance measurements, with the dashboard invoking the POST route through an explicit PageSpeed button.
 - Added deterministic tests around repeated query parameters, upstream HTTP errors, DynamoDB composite-key queries, API behavior, and browser URL encoding.
 - Identified the deployment-specific timeout requirement: the Lambda must allow at least 30 seconds for the synchronous PageSpeed request.
+
+### Analytics foundation
+
+- Added an Athena query adapter that starts a query, polls its execution state, parses aggregate rows, and fails safely on timeout or query failure.
+- Combined S3 historical check analytics with a DynamoDB incident count so the dashboard can show uptime, latency, and incident totals through one Lambda route.
+- Documented the Glue crawler naming and lower-case JSON field assumptions required for the manually provisioned catalog.

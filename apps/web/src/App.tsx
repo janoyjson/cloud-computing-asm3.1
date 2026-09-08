@@ -4,6 +4,7 @@ import {
   calculateUptimePercent,
   getEndpointState,
   monitoringIntervals,
+  type AnalyticsOverview,
   type CheckResult,
   type CreateEndpointInput,
   type MonitoredEndpoint,
@@ -61,6 +62,8 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runningEndpointIds, setRunningEndpointIds] = useState<ReadonlySet<string>>(new Set());
   const [runningPerformanceIds, setRunningPerformanceIds] = useState<ReadonlySet<string>>(new Set());
+  const [analytics, setAnalytics] = useState<AnalyticsOverview | undefined>();
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
 
   useEffect(() => {
     if (!apiClient) {
@@ -193,6 +196,26 @@ export default function App() {
         next.delete(endpointId);
         return next;
       });
+    }
+  }
+
+  async function loadAnalytics() {
+    if (!apiClient) {
+      setNotice('Analytics requires the AWS-connected dashboard.');
+      return;
+    }
+
+    setIsLoadingAnalytics(true);
+    try {
+      const to = new Date();
+      const from = new Date(to.getTime() - 86_400_000);
+      const result = await apiClient.getAnalyticsOverview({ from: from.toISOString(), to: to.toISOString() });
+      setAnalytics(result);
+      setNotice(`Analytics loaded for the last 24 hours: ${result.totalChecks} checks, ${result.incidentCount} incidents.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Analytics could not be loaded.');
+    } finally {
+      setIsLoadingAnalytics(false);
     }
   }
 
@@ -381,6 +404,27 @@ export default function App() {
                 );
               })}
             </div>
+          </article>
+
+          <article id="analytics" className="panel analytics-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">Last 24 hours</span>
+                <h2>Historical analytics</h2>
+              </div>
+              <button className="button-secondary" type="button" disabled={isLoadingAnalytics} onClick={() => void loadAnalytics()}>
+                {isLoadingAnalytics ? 'Loading...' : 'Load analytics'}
+              </button>
+            </div>
+            {!analytics && <p className="empty-state">Load Athena-backed history when the analytics resources are deployed.</p>}
+            {analytics && (
+              <div className="analytics-grid" aria-label="Historical analytics summary">
+                <div><strong>{analytics.uptimePercent === null ? '--' : `${analytics.uptimePercent}%`}</strong><span>Uptime</span></div>
+                <div><strong>{analytics.totalChecks}</strong><span>Checks</span></div>
+                <div><strong>{analytics.averageResponseTimeMs === null ? '--' : `${analytics.averageResponseTimeMs} ms`}</strong><span>Avg response</span></div>
+                <div><strong>{analytics.incidentCount}</strong><span>Incidents</span></div>
+              </div>
+            )}
           </article>
 
           <article id="architecture" className="panel architecture-panel">

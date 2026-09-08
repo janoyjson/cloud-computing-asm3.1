@@ -1,12 +1,13 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 
-import type { CreateEndpointInput, PerformanceResult, UpdateEndpointInput } from '@cloudsentinel/shared';
+import type { AnalyticsOverview, CreateEndpointInput, PerformanceResult, UpdateEndpointInput } from '@cloudsentinel/shared';
 
 import { EcsCheckTaskStarter, type CheckTaskStarter } from './check-task-starter.js';
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
 import { ValidationError, type EndpointRepository } from './endpoint-store.js';
 import { PageSpeedClient } from './pagespeed-client.js';
 import { DynamoPerformanceStore } from './performance-store.js';
+import { AthenaAnalyticsStore, type AnalyticsRange } from './analytics-store.js';
 import {
   EventBridgeRecurringCheckScheduler,
   type RecurringCheckScheduler,
@@ -17,6 +18,7 @@ let configuredTaskStarter: CheckTaskStarter | undefined;
 let configuredRecurringScheduler: RecurringCheckScheduler | undefined;
 let configuredPerformanceStore: DynamoPerformanceStore | undefined;
 let configuredPageSpeedClient: PageSpeedClient | undefined;
+let configuredAnalyticsStore: AthenaAnalyticsStore | undefined;
 
 export interface PerformanceAnalyzer {
   analyze(endpointId: string, url: string): Promise<PerformanceResult>;
@@ -25,6 +27,10 @@ export interface PerformanceAnalyzer {
 export interface PerformanceRepository {
   save(result: PerformanceResult): Promise<void>;
   list(endpointId: string): Promise<PerformanceResult[]>;
+}
+
+export interface AnalyticsRepository {
+  overview(range: AnalyticsRange): Promise<AnalyticsOverview>;
 }
 
 function requiredEnvironment(name: string): string {
@@ -100,6 +106,17 @@ function getConfiguredPageSpeedClient(): PageSpeedClient {
   return configuredPageSpeedClient;
 }
 
+function getConfiguredAnalyticsStore(): AthenaAnalyticsStore {
+  if (configuredAnalyticsStore) return configuredAnalyticsStore;
+  configuredAnalyticsStore = new AthenaAnalyticsStore({
+    database: requiredEnvironment('ATHENA_DATABASE'),
+    checksTable: requiredEnvironment('ATHENA_CHECKS_TABLE'),
+    outputLocation: requiredEnvironment('ATHENA_OUTPUT_LOCATION'),
+    incidentsTable: process.env.INCIDENTS_TABLE_NAME?.trim() || 'CloudSentinelIncidents',
+  });
+  return configuredAnalyticsStore;
+}
+
 function json(statusCode: number, body: unknown) {
   return {
     statusCode,
@@ -116,6 +133,7 @@ export function createHandler(
   getRecurringScheduler: () => RecurringCheckScheduler = getConfiguredRecurringScheduler,
   getPerformanceAnalyzer: () => PerformanceAnalyzer = getConfiguredPageSpeedClient,
   getPerformanceRepository: () => PerformanceRepository = getConfiguredPerformanceStore,
+  getAnalyticsRepository: () => AnalyticsRepository = getConfiguredAnalyticsStore,
 ): APIGatewayProxyHandlerV2 {
   return async (event) => {
   const routeKey = event.routeKey;
@@ -208,6 +226,13 @@ export function createHandler(
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
         return json(200, { items: await getPerformanceRepository().list(endpointId) });
+      }
+
+      if (routeKey === 'GET /v1/analytics/overview') {
+        const now = new Date();
+        const from = event.queryStringParameters?.from ?? new Date(now.getTime() - 86_400_000).toISOString();
+        const to = event.queryStringParameters?.to ?? now.toISOString();
+        return json(200, await getAnalyticsRepository().overview({ from, to }));
       }
     } catch (error) {
       if (error instanceof ValidationError) {

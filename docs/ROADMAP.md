@@ -112,8 +112,9 @@ Progress evidence:
 - Added timestamped `PerformanceResult` contracts and a DynamoDB repository for `CloudSentinelPerformance`.
 - Added API routes and a dashboard `PageSpeed` action with safe loading/error states.
 - Added deterministic unit tests for request construction, score parsing, persistence commands, API routes, and browser requests.
+- Added an Athena query adapter, incident-count scan, analytics API route, and dashboard analytics summary with a date-range contract.
 
-Remaining deployment evidence is the manual Lambda/API Gateway update and one live dashboard measurement stored in DynamoDB.
+Remaining deployment evidence is the manual Glue crawler/Athena setup, Lambda/API Gateway update, and one live dashboard analytics response.
 
 Required work:
 

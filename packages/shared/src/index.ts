@@ -67,6 +67,17 @@ export interface PerformanceResult {
   cumulativeLayoutShift?: number;
 }
 
+export interface AnalyticsOverview {
+  from: string;
+  to: string;
+  totalChecks: number;
+  upChecks: number;
+  downChecks: number;
+  uptimePercent: number | null;
+  averageResponseTimeMs: number | null;
+  incidentCount: number;
+}
+
 export function getEndpointState(endpoint: MonitoredEndpoint): MonitorState {
   return endpoint.latestCheck?.state ?? 'UNKNOWN';
 }

@@ -99,6 +99,37 @@ describe('API handler', () => {
     expect(list).toHaveBeenCalledWith('endpoint-123');
   });
 
+  it('returns Athena-backed analytics for the requested range', async () => {
+    const overview = {
+      from: '2026-09-07T00:00:00.000Z',
+      to: '2026-09-08T00:00:00.000Z',
+      totalChecks: 4,
+      upChecks: 3,
+      downChecks: 1,
+      uptimePercent: 75,
+      averageResponseTimeMs: 120,
+      incidentCount: 1,
+    };
+    const analytics = vi.fn().mockResolvedValue(overview);
+    const handler = createHandler(
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      () => ({ overview: analytics }),
+    );
+
+    const response = await handler({
+      routeKey: 'GET /v1/analytics/overview',
+      queryStringParameters: { from: overview.from, to: overview.to },
+    } as unknown as APIGatewayProxyEventV2, {} as never, vi.fn());
+
+    expect(response).toMatchObject({ statusCode: 200 });
+    expect(JSON.parse(responseBody(response))).toEqual(overview);
+    expect(analytics).toHaveBeenCalledWith({ from: overview.from, to: overview.to });
+  });
+
   it('does not expose unexpected errors', async () => {
     const getStore = () => ({
       list: async () => { throw new Error('secret implementation detail'); },

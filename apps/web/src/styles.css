@@ -399,6 +399,27 @@ h2 {
   transition: 160ms ease;
 }
 
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.analytics-grid div {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f5f8fa;
+}
+
+.analytics-grid strong,
+.analytics-grid span {
+  display: block;
+}
+
+.analytics-grid strong { font-size: 18px; }
+.analytics-grid span { margin-top: 5px; color: #7b879a; font-size: 10px; }
+
 .button-primary:hover,
 .button-secondary:hover {
   transform: translateY(-1px);

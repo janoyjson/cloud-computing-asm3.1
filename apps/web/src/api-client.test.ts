@@ -101,4 +101,31 @@ describe('CloudSentinelApiClient', () => {
       { method: 'POST' },
     );
   });
+
+  it('loads analytics for an encoded date range', async () => {
+    const fetchClient = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      from: '2026-09-07T00:00:00.000Z',
+      to: '2026-09-08T00:00:00.000Z',
+      totalChecks: 4,
+      upChecks: 3,
+      downChecks: 1,
+      uptimePercent: 75,
+      averageResponseTimeMs: 120,
+      incidentCount: 1,
+    }), { status: 200 }));
+    const client = new CloudSentinelApiClient(
+      'https://abc.execute-api.us-east-1.amazonaws.com',
+      fetchClient,
+    );
+
+    await client.getAnalyticsOverview({
+      from: '2026-09-07T00:00:00.000Z',
+      to: '2026-09-08T00:00:00.000Z',
+    });
+
+    expect(fetchClient).toHaveBeenCalledWith(
+      'https://abc.execute-api.us-east-1.amazonaws.com/v1/analytics/overview?from=2026-09-07T00%3A00%3A00.000Z&to=2026-09-08T00%3A00%3A00.000Z',
+      undefined,
+    );
+  });
 });
