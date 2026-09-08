@@ -45,6 +45,13 @@ export interface Incident {
   recoveredAt?: string;
   status: 'OPEN' | 'RESOLVED';
   openingCheckId: string;
+  recoveryCheckId?: string;
+  outageNotificationStatus: 'PENDING' | 'SENT' | 'FAILED';
+  outageNotifiedAt?: string;
+  outageNotificationError?: string;
+  recoveryNotificationStatus?: 'PENDING' | 'SENT' | 'FAILED';
+  recoveryNotifiedAt?: string;
+  recoveryNotificationError?: string;
 }
 
 export function getEndpointState(endpoint: MonitoredEndpoint): MonitorState {

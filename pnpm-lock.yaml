@@ -109,6 +109,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.883.0
         version: 3.1123.0
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.1127.0
+        version: 3.1127.0
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.883.0
         version: 3.1121.0(@aws-sdk/client-dynamodb@3.1121.0)
@@ -153,6 +156,10 @@ packages:
 
   '@aws-sdk/client-scheduler@3.1127.0':
     resolution: {integrity: sha512-EPqngKCbsTxq7Uz/FjdtoMT/1vERIhRHNwer05FJ+evHichlhnClwY4+Csqi5O9sLzr752+BlPxQSkoL+9MSag==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-secrets-manager@3.1127.0':
+    resolution: {integrity: sha512-sgTX/mZ0kYrFukwm238T5OyRKT3QxUS9VdSl4iD8pu9vyZxS+PpZgASCdTJoRvdv99NPOvEaXcQ1ecsCjnqNug==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.977.9':
@@ -1516,6 +1523,17 @@ snapshots:
       tslib: 2.8.1
 
   '@aws-sdk/client-scheduler@3.1127.0':
+    dependencies:
+      '@aws-sdk/core': 3.977.9
+      '@aws-sdk/credential-provider-node': 3.972.82
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.33.3
+      '@smithy/fetch-http-handler': 5.7.2
+      '@smithy/node-http-handler': 4.12.0
+      '@smithy/types': 4.17.2
+      tslib: 2.8.1
+
+  '@aws-sdk/client-secrets-manager@3.1127.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/credential-provider-node': 3.972.82

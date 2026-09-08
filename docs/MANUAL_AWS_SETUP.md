@@ -189,3 +189,23 @@ The existing `POST /v1/endpoints` route now creates both the DynamoDB monitor an
 - `LabRole` is the schedule execution role.
 
 Wait for the first invocation, then verify a new task with `MONITOR_SOURCE=SCHEDULED` in CloudWatch Logs and matching DynamoDB/S3 evidence. Use the PATCH route to disable or change the interval and verify the schedule changes; use DELETE only on a disposable test monitor and verify its schedule is removed.
+
+## Phase 4 incidents and Discord notifications
+
+Create a Discord incoming webhook for the alert channel, then store it in Secrets Manager in `us-east-1` rather than in source code, task-definition plaintext, or shell history:
+
+```text
+Secret name: cloudsentinel/discord-webhook
+Secret JSON key: url
+Encryption: aws/secretsmanager
+Rotation: disabled for the Learner Lab
+```
+
+Publish the locally tested `cloudsentinel-monitor-worker:0.3.0` image to the existing immutable ECR repository. Create task-definition revision 3 from revision 2, change the image tag to `0.3.0`, and add:
+
+```text
+INCIDENTS_TABLE_NAME=CloudSentinelIncidents
+NOTIFICATION_SECRET_ID=cloudsentinel/discord-webhook
+```
+
+Keep the existing monitor, check, results-bucket, logging, role, CPU, memory, and networking settings. Update Lambda's `ECS_TASK_DEFINITION` and `ECS_TASK_DEFINITION_ARN` values to revision 3. Existing EventBridge schedules receive the new revision after the corresponding endpoint is patched; newly created endpoints use it immediately.

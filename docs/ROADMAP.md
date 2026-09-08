@@ -77,6 +77,16 @@ Exit criteria:
 
 ## Phase 4 - Incidents and notifications
 
+Status: Complete (8 September 2026)
+
+Progress evidence:
+
+- The incident transition engine opens only on the first failure, suppresses repeated failures, and resolves on recovery.
+- DynamoDB incident persistence and Discord delivery use the protected `cloudsentinel/discord-webhook` Secrets Manager value.
+- Notification success/failure metadata is persisted without discarding completed monitoring results.
+- Unit tests cover outage, duplicate-failure, recovery, unsafe webhook URLs, and webhook errors.
+- A live controlled `404` opened one DynamoDB incident and sent one Discord outage notification; a repeated failure created no duplicate; a later `200` resolved the incident and sent one recovery notification.
+
 Required work:
 
 - Define outage, repeated failure, recovery, and notification-deduplication rules.

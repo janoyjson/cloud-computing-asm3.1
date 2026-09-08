@@ -6,7 +6,24 @@ import { AwsResultStore } from './result-store.js';
 
 describe('AwsResultStore', () => {
   it('stores the check, updates latest state, and archives partitioned JSON', async () => {
-    const documentSend = vi.fn().mockResolvedValue({});
+    const previousCheck = {
+      endpointId: 'endpoint-1',
+      checkedAt: '2026-09-02T11:17:33.000Z',
+      state: 'DOWN' as const,
+      source: 'SCHEDULED' as const,
+      responseTimeMs: 1000,
+      statusCode: 503,
+    };
+    const documentSend = vi.fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        Attributes: {
+          id: 'endpoint-1',
+          name: 'Client API',
+          url: 'https://example.com/health',
+          latestCheck: previousCheck,
+        },
+      });
     const s3Send = vi.fn().mockResolvedValue({});
     const store = new AwsResultStore({
       monitorsTableName: 'CloudSentinelMonitors',
@@ -24,15 +41,21 @@ describe('AwsResultStore', () => {
       statusCode: 200,
     };
 
-    await store.save(result);
+    const context = await store.save(result);
 
     expect(documentSend.mock.calls[0]?.[0]).toBeInstanceOf(PutCommand);
     expect(documentSend.mock.calls[1]?.[0]).toBeInstanceOf(UpdateCommand);
+    expect(documentSend.mock.calls[1]?.[0].input.ReturnValues).toBe('ALL_OLD');
     expect(s3Send.mock.calls[0]?.[0]).toBeInstanceOf(PutObjectCommand);
     expect(s3Send.mock.calls[0]?.[0].input).toMatchObject({
       Bucket: 'cloudsentinel-results-test',
       Key: 'checks/year=2026/month=09/day=02/endpointId=endpoint-1/2026-09-02T11-22-33.000Z.json',
       ContentType: 'application/json',
+    });
+    expect(context).toEqual({
+      previousCheck,
+      endpointName: 'Client API',
+      endpointUrl: 'https://example.com/health',
     });
   });
 });

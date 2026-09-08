@@ -131,3 +131,14 @@ Before continuing, be able to explain:
 - Deployed the scheduler-enabled Lambda and created a five-minute monitor through the S3-hosted dashboard.
 - Verified that the application-created schedule targeted the expected cluster, task definition, subnet, security group, public-IP setting, and `LabRole` without manual schedule creation.
 - Confirmed the first automatic task exited successfully and matched one `UP`, `SCHEDULED` result across CloudWatch Logs, DynamoDB, and an AES256-encrypted S3 object.
+
+## 7 September 2026 - Phase 4 incident foundation
+
+- Created the Discord webhook secret manually in Secrets Manager and validated only its structure without printing the protected URL.
+- Defined explicit transitions: first failure opens, repeated failures do nothing, and the first successful check after failure resolves the incident.
+- Added conditional incident creation and recovery persistence in `CloudSentinelIncidents`.
+- Added Discord delivery through a five-second timeout, disabled mentions, and a strict Discord HTTPS destination allowlist.
+- Recorded notification delivery success or failure on each incident while preserving the completed monitoring result.
+- Built the tested Node.js 24 worker image as immutable version `0.3.0` for manual ECR publication.
+- Deployed revision 3 manually and verified the complete incident workflow in AWS: outage alert, duplicate suppression, recovery alert, and incident closure.
+- Confirmed that a worker task remains successful (`exit 0`) when the monitored endpoint is down because availability failure is stored as a business result rather than treated as infrastructure failure.

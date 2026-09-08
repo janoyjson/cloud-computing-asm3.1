@@ -2,7 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
-import type { CheckResult } from '@cloudsentinel/shared';
+import type { CheckResult, MonitoredEndpoint } from '@cloudsentinel/shared';
 
 interface AwsResultStoreOptions {
   monitorsTableName: string;
@@ -10,6 +10,12 @@ interface AwsResultStoreOptions {
   resultsBucketName: string;
   documentClient?: DynamoDBDocumentClient;
   s3Client?: S3Client;
+}
+
+export interface SavedCheckContext {
+  previousCheck?: CheckResult;
+  endpointName?: string;
+  endpointUrl?: string;
 }
 
 export class AwsResultStore {
@@ -29,14 +35,14 @@ export class AwsResultStore {
     this.#s3Client = options.s3Client ?? new S3Client({});
   }
 
-  public async save(result: CheckResult): Promise<void> {
+  public async save(result: CheckResult): Promise<SavedCheckContext> {
     await this.#documentClient.send(new PutCommand({
       TableName: this.#checksTableName,
       Item: result,
       ConditionExpression: 'attribute_not_exists(endpointId) AND attribute_not_exists(checkedAt)',
     }));
 
-    await this.#documentClient.send(new UpdateCommand({
+    const updateResponse = await this.#documentClient.send(new UpdateCommand({
       TableName: this.#monitorsTableName,
       Key: { id: result.endpointId },
       UpdateExpression: 'SET latestCheck = :result, updatedAt = :checkedAt',
@@ -45,6 +51,7 @@ export class AwsResultStore {
         ':result': result,
         ':checkedAt': result.checkedAt,
       },
+      ReturnValues: 'ALL_OLD',
     }));
 
     await this.#s3Client.send(new PutObjectCommand({
@@ -53,6 +60,13 @@ export class AwsResultStore {
       Body: JSON.stringify(result),
       ContentType: 'application/json',
     }));
+
+    const previousEndpoint = updateResponse.Attributes as MonitoredEndpoint | undefined;
+    return {
+      previousCheck: previousEndpoint?.latestCheck,
+      endpointName: previousEndpoint?.name,
+      endpointUrl: previousEndpoint?.url,
+    };
   }
 
   #objectKey(result: CheckResult): string {
