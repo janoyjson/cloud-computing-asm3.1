@@ -36,6 +36,10 @@ describe('API handler', () => {
       () => store,
       vi.fn(),
       () => ({ upsert, remove: vi.fn() }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
     );
 
     const created = await handler(event('POST /v1/endpoints', JSON.stringify({
@@ -147,6 +151,29 @@ describe('API handler', () => {
     consoleError.mockRestore();
   });
 
+  it('returns a validation error for an unsafe endpoint URL', async () => {
+    const handler = createHandler(
+      () => new EndpointStore(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      async () => { throw new Error('URL resolves to a blocked destination.'); },
+    );
+
+    const response = await handler(event('POST /v1/endpoints', JSON.stringify({
+      name: 'Internal service',
+      url: 'http://169.254.169.254/latest/meta-data',
+      intervalMinutes: 15,
+    })), {} as never, vi.fn());
+
+    expect(response).toMatchObject({ statusCode: 400 });
+    expect(JSON.parse(responseBody(response))).toEqual({
+      error: { code: 'VALIDATION_ERROR', message: 'URL resolves to a blocked destination.' },
+    });
+  });
+
   it('starts an ECS check for an existing endpoint', async () => {
     const store = new EndpointStore([{
       id: 'endpoint-123',
@@ -200,6 +227,10 @@ describe('API handler', () => {
       () => store,
       vi.fn(),
       () => ({ upsert, remove: vi.fn() }),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
     );
 
     const response = await handler(

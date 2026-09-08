@@ -46,7 +46,7 @@ Validation rules:
 - Name is required and limited to 80 characters.
 - URL must be absolute and use HTTP or HTTPS.
 - Interval must be one of 5, 15, 30, or 60 minutes.
-- Production validation in Phase 3 must also block private, loopback, link-local, and metadata destinations.
+- API validation resolves every hostname and blocks private, loopback, link-local, metadata, multicast, and IPv6 unique-local destinations before persistence.
 
 After the endpoint record is stored, the API creates its EventBridge Scheduler schedule. If schedule creation fails, the API removes the new endpoint record and returns a safe internal error.
 

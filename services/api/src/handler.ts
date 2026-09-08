@@ -8,6 +8,7 @@ import { ValidationError, type EndpointRepository } from './endpoint-store.js';
 import { PageSpeedClient } from './pagespeed-client.js';
 import { DynamoPerformanceStore } from './performance-store.js';
 import { AthenaAnalyticsStore, type AnalyticsRange } from './analytics-store.js';
+import { assertPublicHttpUrl } from './url-safety.js';
 import {
   EventBridgeRecurringCheckScheduler,
   type RecurringCheckScheduler,
@@ -31,6 +32,16 @@ export interface PerformanceRepository {
 
 export interface AnalyticsRepository {
   overview(range: AnalyticsRange): Promise<AnalyticsOverview>;
+}
+
+export type PublicUrlValidator = (url: string) => Promise<void>;
+
+async function validateEndpointUrl(url: string, validator: PublicUrlValidator): Promise<void> {
+  try {
+    await validator(url);
+  } catch (error) {
+    throw new ValidationError(error instanceof Error ? error.message : 'URL is not safe to monitor.');
+  }
 }
 
 function requiredEnvironment(name: string): string {
@@ -134,6 +145,7 @@ export function createHandler(
   getPerformanceAnalyzer: () => PerformanceAnalyzer = getConfiguredPageSpeedClient,
   getPerformanceRepository: () => PerformanceRepository = getConfiguredPerformanceStore,
   getAnalyticsRepository: () => AnalyticsRepository = getConfiguredAnalyticsStore,
+  validatePublicUrl: PublicUrlValidator = assertPublicHttpUrl,
 ): APIGatewayProxyHandlerV2 {
   return async (event) => {
   const routeKey = event.routeKey;
@@ -149,6 +161,7 @@ export function createHandler(
 
       if (routeKey === 'POST /v1/endpoints') {
         const input = JSON.parse(event.body ?? '{}') as CreateEndpointInput;
+        await validateEndpointUrl(input.url, validatePublicUrl);
         const endpoint = await getStore().create(input);
 
         try {
@@ -170,6 +183,7 @@ export function createHandler(
         }
 
         const input = JSON.parse(event.body ?? '{}') as UpdateEndpointInput;
+        if (input.url !== undefined) await validateEndpointUrl(input.url, validatePublicUrl);
         const endpoint = await getStore().update(endpointId, input);
         if (!endpoint) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });

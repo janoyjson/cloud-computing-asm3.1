@@ -156,3 +156,9 @@ Before continuing, be able to explain:
 - Added an Athena query adapter that starts a query, polls its execution state, parses aggregate rows, and fails safely on timeout or query failure.
 - Combined S3 historical check analytics with a DynamoDB incident count so the dashboard can show uptime, latency, and incident totals through one Lambda route.
 - Documented the Glue crawler naming and lower-case JSON field assumptions required for the manually provisioned catalog.
+
+## 8 September 2026 - Phase 6 SSRF boundary
+
+- Reused the worker's public-destination rules at the API boundary so unsafe URLs are rejected before they enter DynamoDB or trigger PageSpeed/Fargate work.
+- Added DNS resolution checks for every returned address, including IPv4 private/link-local/metadata ranges and IPv6 loopback, unique-local, and link-local ranges.
+- Preserved a second independent worker check for redirects and converted rejected API URLs into safe validation responses.

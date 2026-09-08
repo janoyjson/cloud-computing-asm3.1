@@ -134,6 +134,14 @@ Exit criteria:
 
 ## Phase 6 - Security, resilience, observability, and cost control
 
+Status: In progress (API SSRF boundary implemented; deployment pending)
+
+Progress evidence:
+
+- Added API-side DNS/IP validation for loopback, private, link-local, metadata, multicast, and IPv6 unique-local destinations.
+- Rejected URL credentials and converted blocked destinations into safe HTTP 400 validation responses.
+- Added deterministic security tests for unsafe addresses and public-host resolution.
+
 Required work:
 
 - Prevent server-side request forgery by rejecting unsafe/private destinations.

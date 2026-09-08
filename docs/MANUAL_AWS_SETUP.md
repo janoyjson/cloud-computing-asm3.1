@@ -259,3 +259,7 @@ GET /v1/analytics/overview
 ```
 
 Allow `GET,OPTIONS` in CORS. The dashboard's **Load analytics** button requests the previous 24 hours and displays uptime, check count, average response time, and incident count.
+
+## Phase 6 security deployment note
+
+The API bundle now resolves every new or changed monitor hostname before storing it. Upload the latest Lambda bundle after the Phase 6 changes so API-side validation is active; the worker keeps its independent redirect-by-redirect validation as a second boundary. Unsafe/private destinations return a safe `400 VALIDATION_ERROR` and are never scheduled or sent to PageSpeed.
