@@ -104,7 +104,7 @@ Exit criteria:
 
 ## Phase 5 - Performance checks and historical analytics
 
-Status: In progress (local implementation complete; AWS deployment pending)
+Status: Complete (9 September 2026)
 
 Progress evidence:
 
@@ -113,8 +113,9 @@ Progress evidence:
 - Added API routes and a dashboard `PageSpeed` action with safe loading/error states.
 - Added deterministic unit tests for request construction, score parsing, persistence commands, API routes, and browser requests.
 - Added an Athena query adapter, incident-count scan, analytics API route, and dashboard analytics summary with a date-range contract.
+- Deployed the PageSpeed and analytics routes, refreshed the Glue crawler schema, and verified live PageSpeed and Athena responses from the dashboard API.
 
-Remaining deployment evidence is the manual Glue crawler/Athena setup, Lambda/API Gateway update, and one live dashboard analytics response.
+Remaining work is submission evidence capture and inclusion of the live results in the solution architecture document.
 
 Required work:
 
@@ -134,13 +135,14 @@ Exit criteria:
 
 ## Phase 6 - Security, resilience, observability, and cost control
 
-Status: In progress (API SSRF boundary implemented; deployment pending)
+Status: In progress (core API security boundary deployed; observability hardening remains)
 
 Progress evidence:
 
 - Added API-side DNS/IP validation for loopback, private, link-local, metadata, multicast, and IPv6 unique-local destinations.
 - Rejected URL credentials and converted blocked destinations into safe HTTP 400 validation responses.
 - Added deterministic security tests for unsafe addresses and public-host resolution.
+- Deployed the SSRF boundary and optional single-user API access-token guard; API Gateway CORS now includes the authorization header.
 
 Required work:
 

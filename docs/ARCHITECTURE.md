@@ -12,14 +12,14 @@ The assessed MVP supports five user journeys:
 
 Authentication, multi-team permissions, SMS/email channels, geographic probes, and public status pages are deferred until the assessed workflows are reliable.
 
-## Planned deployed flows
+## Deployed and deployable flows
 
 ### Assessment flow diagram
 
 ```mermaid
 flowchart LR
   Browser -->|HTTPS| API[API Gateway]
-  Browser -->|static assets| S3Web[S3 website bucket]
+  Browser -->|static assets| S3Web[S3 website bucket or CloudFront]
   API --> Lambda[CloudSentinelApi Lambda]
   Lambda --> Monitors[(DynamoDB Monitors)]
   Lambda --> Scheduler[EventBridge Scheduler]
@@ -57,7 +57,7 @@ sequenceDiagram
 
 ```text
 Browser
-  -> CloudFront when Learner Lab permits it, otherwise S3 website endpoint
+  -> CloudFront when configured, otherwise S3 website endpoint
   -> S3 frontend assets
   -> API Gateway
   -> Lambda API functions
@@ -145,10 +145,10 @@ The initial implementation uses separate tables because they are easier to expla
 
 A single-table design is not required for this workload and would add explanation and implementation risk without improving the assessed user journeys.
 
-## Phase 1 boundaries
+## Local fallback and deployment boundaries
 
-- The web dashboard uses local mock data.
-- The API repository is in memory and exists to establish validation and handler contracts.
-- The worker performs a real HTTP check when run with a target URL, but tests inject a fake fetch implementation.
-- The CDK stack intentionally contains no deployable resources. Manual Console provisioning was selected for the assessed deployment so the student can explain every setting.
+- Without `VITE_API_BASE_URL`, the web dashboard uses local mock data so the UI can be demonstrated without AWS credentials.
+- With a real HTTPS API base URL, the dashboard invokes API Gateway, Lambda, DynamoDB, ECS, PageSpeed, and Athena routes.
+- The worker performs a real HTTP check when run with a target URL, while tests inject a fake fetch implementation.
+- The CDK stack is the reproducible baseline for standard AWS accounts; Learner Lab deployments may continue to use the documented pre-created `LabRole` and manual resource settings where permissions require it.
 - No secrets, account identifiers, or AWS credentials belong in this repository.

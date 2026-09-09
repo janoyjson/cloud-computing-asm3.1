@@ -17,12 +17,12 @@ function responseBody(response: unknown): string {
 }
 
 describe('API handler', () => {
-  it('returns the Phase 5 health response without opening the repository', async () => {
+  it('returns the current phase health response without opening the repository', async () => {
     const getStore = vi.fn();
     const response = await createHandler(getStore)(event('GET /v1/health'), {} as never, vi.fn());
 
     expect(response).toMatchObject({ statusCode: 200 });
-    expect(JSON.parse(responseBody(response))).toEqual({ status: 'ok', phase: 5 });
+    expect(JSON.parse(responseBody(response))).toEqual({ status: 'ok', phase: 6 });
     expect(getStore).not.toHaveBeenCalled();
   });
 
@@ -132,6 +132,40 @@ describe('API handler', () => {
     expect(response).toMatchObject({ statusCode: 200 });
     expect(JSON.parse(responseBody(response))).toEqual(overview);
     expect(analytics).toHaveBeenCalledWith({ from: overview.from, to: overview.to });
+  });
+
+  it('lists incident history for an existing endpoint', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123', name: 'Production API', url: 'https://example.com/health', intervalMinutes: 15,
+      enabled: true, createdAt: '2026-09-07T00:00:00.000Z', updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const incident = { id: 'incident-1', endpointId: 'endpoint-123', openedAt: '2026-09-08T00:00:00.000Z', status: 'OPEN' as const, openingCheckId: 'check-1', outageNotificationStatus: 'SENT' as const };
+    const list = vi.fn().mockResolvedValue([incident]);
+    const handler = createHandler( () => store, vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), () => ({ list }));
+
+    const response = await handler(event('GET /v1/endpoints/{id}/incidents', undefined, { id: 'endpoint-123' }), {} as never, vi.fn());
+
+    expect(response).toMatchObject({ statusCode: 200 });
+    expect(JSON.parse(responseBody(response))).toEqual({ items: [incident] });
+    expect(list).toHaveBeenCalledWith('endpoint-123');
+  });
+
+  it('rolls back endpoint changes when schedule synchronization fails', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123', name: 'Production API', url: 'https://example.com/health', intervalMinutes: 15,
+      enabled: true, createdAt: '2026-09-07T00:00:00.000Z', updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      () => ({ upsert: vi.fn().mockRejectedValue(new Error('scheduler unavailable')), remove: vi.fn() }),
+      vi.fn(), vi.fn(), vi.fn(), vi.fn(),
+    );
+
+    const response = await handler(event('PATCH /v1/endpoints/{id}', JSON.stringify({ name: 'Changed name' }), { id: 'endpoint-123' }), {} as never, vi.fn());
+
+    expect(response).toMatchObject({ statusCode: 500 });
+    await expect(store.get('endpoint-123')).resolves.toMatchObject({ name: 'Production API' });
   });
 
   it('does not expose unexpected errors', async () => {

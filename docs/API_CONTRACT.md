@@ -2,6 +2,8 @@
 
 Base path: `/v1`
 
+When `API_ACCESS_TOKEN` is configured, all routes except health require `Authorization: Bearer <token>`. This is a single-user/demo access guard; production multi-user authentication should use a managed identity provider such as Amazon Cognito.
+
 All success and error bodies use JSON. Errors follow:
 
 ```json
@@ -122,6 +124,24 @@ Returns the newest persisted PageSpeed results first:
 }
 ```
 
+### `GET /endpoints/{id}/incidents`
+
+Returns the newest outage and recovery records for the endpoint, up to the latest 20 items:
+
+```json
+{
+  "items": [
+    {
+      "id": "incident-id",
+      "endpointId": "endpoint-id",
+      "openedAt": "2026-09-08T00:00:00.000Z",
+      "recoveredAt": "2026-09-08T00:05:00.000Z",
+      "status": "RESOLVED"
+    }
+  ]
+}
+```
+
 ### `GET /analytics/overview`
 
 Runs the Athena checks query for the requested ISO-8601 range. If `from` and `to` are omitted, Lambda uses the previous 24 hours. The response includes check totals, uptime, average response time, and incident count:
@@ -145,7 +165,6 @@ Runs the Athena checks query for the requested ISO-8601 range. If `from` and `to
 |---|---|---|---|
 | `GET` | `/endpoints/{id}` | Read monitor details | 2 |
 | `GET` | `/endpoints/{id}/checks` | Read recent check results | 3 |
-| `GET` | `/endpoints/{id}/incidents` | Read incident history | 4 |
 
 Long-running operations return `202 Accepted` with an operation or task identifier. The dashboard polls the appropriate read endpoint instead of holding API Gateway requests open.
 

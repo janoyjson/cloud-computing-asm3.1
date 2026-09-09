@@ -6,19 +6,19 @@ This repository is a rubric-aligned Assessment 3 implementation. The original as
 
 ## Current status
 
-Phase 1 is complete. Phase 2 is in progress using manually created Learner Lab resources so every AWS setting can be explained:
+Phases 1–4 are implemented, with Phase 5 analytics/performance deployment and final evidence being completed using manually created Learner Lab resources so every AWS setting can be explained:
 
-- React and TypeScript dashboard with a local mock workflow
+- React and TypeScript dashboard with local fallback and AWS-connected workflows
 - Shared endpoint, check-result, and incident contracts
-- API Gateway/Lambda-compatible API handler and in-memory repository
-- ECS-ready HTTP monitoring worker and Dockerfile
+- API Gateway/Lambda API handler with DynamoDB persistence
+- ECS Fargate HTTP monitoring worker and Dockerfile
 - AWS CDK v2 infrastructure workspace
 - Architecture, API, roadmap, and rubric-traceability documentation
 - Unit tests, linting, type checking, and production builds
 - Active DynamoDB monitor, check, and incident tables in `us-east-1`
 - DynamoDB-backed Lambda API package ready for manual Console upload
 
-Verified on 26 August 2026: lint, type checks, 11 unit tests, all workspace builds, CDK synthesis, and the browser-based add/run-check workflow passed.
+Verified locally on 9 September 2026: lint, type checks, 72 unit tests, all workspace builds, and browser-based create/check workflows passed. AWS smoke tests require a current Learner Lab session.
 
 See [the complete roadmap](docs/ROADMAP.md) and [architecture decisions](docs/ARCHITECTURE.md).
 The exact Console settings and deployment tests are recorded in [the manual AWS setup guide](docs/MANUAL_AWS_SETUP.md).
@@ -44,7 +44,7 @@ pnpm install
 pnpm dev
 ```
 
-The dashboard runs at `http://localhost:5173` and uses local mock data during Phase 1.
+The dashboard runs at `http://localhost:5173`. Leave `VITE_API_BASE_URL` empty for local demo data, or provide the deployed HTTPS API URL to use AWS. An optional `VITE_API_ACCESS_TOKEN` must match the Lambda `API_ACCESS_TOKEN` setting when API access protection is enabled.
 
 Run the full verification suite:
 
@@ -52,4 +52,4 @@ Run the full verification suite:
 pnpm check
 ```
 
-No AWS credentials are required until Phase 2. Never commit credentials, API keys, webhook URLs, or `.env` files.
+Never commit credentials, API keys, webhook URLs, access tokens, or `.env` files.

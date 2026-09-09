@@ -13,6 +13,7 @@ import {
   EventBridgeRecurringCheckScheduler,
   type RecurringCheckScheduler,
 } from './recurring-check-scheduler.js';
+import { DynamoIncidentStore, type IncidentRepository } from './incident-store.js';
 
 let configuredStore: EndpointRepository | undefined;
 let configuredTaskStarter: CheckTaskStarter | undefined;
@@ -20,6 +21,7 @@ let configuredRecurringScheduler: RecurringCheckScheduler | undefined;
 let configuredPerformanceStore: DynamoPerformanceStore | undefined;
 let configuredPageSpeedClient: PageSpeedClient | undefined;
 let configuredAnalyticsStore: AthenaAnalyticsStore | undefined;
+let configuredIncidentStore: IncidentRepository | undefined;
 
 export interface PerformanceAnalyzer {
   analyze(endpointId: string, url: string): Promise<PerformanceResult>;
@@ -128,6 +130,12 @@ function getConfiguredAnalyticsStore(): AthenaAnalyticsStore {
   return configuredAnalyticsStore;
 }
 
+function getConfiguredIncidentStore(): IncidentRepository {
+  if (configuredIncidentStore) return configuredIncidentStore;
+  configuredIncidentStore = new DynamoIncidentStore({ tableName: requiredEnvironment('INCIDENTS_TABLE_NAME') });
+  return configuredIncidentStore;
+}
+
 function json(statusCode: number, body: unknown) {
   return {
     statusCode,
@@ -136,6 +144,15 @@ function json(statusCode: number, body: unknown) {
     },
     body: JSON.stringify(body),
   };
+}
+
+function isAuthorized(event: Parameters<APIGatewayProxyHandlerV2>[0]): boolean {
+  const expectedToken = process.env.API_ACCESS_TOKEN?.trim();
+  if (!expectedToken) return true;
+
+  const headers = event.headers ?? {};
+  const supplied = headers.authorization ?? headers.Authorization ?? headers['x-cloudsentinel-access-token'];
+  return supplied === `Bearer ${expectedToken}` || supplied === expectedToken;
 }
 
 function parseJsonBody(event: Parameters<APIGatewayProxyHandlerV2>[0]): unknown {
@@ -154,12 +171,17 @@ export function createHandler(
   getPerformanceRepository: () => PerformanceRepository = getConfiguredPerformanceStore,
   getAnalyticsRepository: () => AnalyticsRepository = getConfiguredAnalyticsStore,
   validatePublicUrl: PublicUrlValidator = assertPublicHttpUrl,
+  getIncidentRepository: () => IncidentRepository = getConfiguredIncidentStore,
 ): APIGatewayProxyHandlerV2 {
   return async (event) => {
   const routeKey = event.routeKey;
 
+  if (routeKey !== 'GET /v1/health' && process.env.API_ACCESS_TOKEN?.trim() && !isAuthorized(event)) {
+    return json(401, { error: { code: 'UNAUTHORIZED', message: 'A valid API access token is required.' } });
+  }
+
   if (routeKey === 'GET /v1/health') {
-      return json(200, { status: 'ok', phase: 5 });
+      return json(200, { status: 'ok', phase: 6 });
   }
 
     try {
@@ -192,12 +214,28 @@ export function createHandler(
 
         const input = parseJsonBody(event) as UpdateEndpointInput;
         if (input.url !== undefined) await validateEndpointUrl(input.url, validatePublicUrl);
+        const existing = await getStore().get(endpointId);
+        if (!existing) {
+          return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
+        }
         const endpoint = await getStore().update(endpointId, input);
         if (!endpoint) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
 
-        await getRecurringScheduler().upsert(endpoint);
+        try {
+          await getRecurringScheduler().upsert(endpoint);
+        } catch (error) {
+          await getStore().update(endpointId, {
+            name: existing.name,
+            url: existing.url,
+            intervalMinutes: existing.intervalMinutes,
+            enabled: existing.enabled,
+          }).catch((rollbackError: unknown) => {
+            console.error('Could not roll back endpoint after schedule update failed', rollbackError);
+          });
+          throw error;
+        }
         return json(200, endpoint);
       }
 
@@ -248,6 +286,15 @@ export function createHandler(
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
         return json(200, { items: await getPerformanceRepository().list(endpointId) });
+      }
+
+      if (routeKey === 'GET /v1/endpoints/{id}/incidents') {
+        const endpointId = event.pathParameters?.id?.trim();
+        if (!endpointId) throw new ValidationError('Endpoint ID is required.');
+        if (!await getStore().get(endpointId)) {
+          return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
+        }
+        return json(200, { items: await getIncidentRepository().list(endpointId) });
       }
 
       if (routeKey === 'GET /v1/analytics/overview') {

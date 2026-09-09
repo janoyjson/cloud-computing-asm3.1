@@ -128,4 +128,30 @@ describe('CloudSentinelApiClient', () => {
       undefined,
     );
   });
+
+  it('updates, deletes, and lists incidents for an encoded endpoint ID', async () => {
+    const fetchClient = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'endpoint/123', name: 'Updated' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+    const client = new CloudSentinelApiClient('https://abc.execute-api.us-east-1.amazonaws.com', fetchClient);
+
+    await client.updateEndpoint('endpoint/123', { enabled: false });
+    await client.deleteEndpoint('endpoint/123');
+    await client.listIncidents('endpoint/123');
+
+    expect(fetchClient).toHaveBeenNthCalledWith(1, 'https://abc.execute-api.us-east-1.amazonaws.com/v1/endpoints/endpoint%2F123', expect.objectContaining({ method: 'PATCH' }));
+    expect(fetchClient).toHaveBeenNthCalledWith(2, 'https://abc.execute-api.us-east-1.amazonaws.com/v1/endpoints/endpoint%2F123', { method: 'DELETE' });
+    expect(fetchClient).toHaveBeenNthCalledWith(3, 'https://abc.execute-api.us-east-1.amazonaws.com/v1/endpoints/endpoint%2F123/incidents', undefined);
+  });
+
+  it('sends the optional bearer access token', async () => {
+    const fetchClient = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [] }), { status: 200 }));
+    const client = new CloudSentinelApiClient('https://abc.execute-api.us-east-1.amazonaws.com', fetchClient, 'demo-token');
+
+    await client.listEndpoints();
+
+    const init = fetchClient.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer demo-token');
+  });
 });

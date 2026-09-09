@@ -184,6 +184,7 @@ In API Gateway, attach these routes to the existing `CloudSentinelApi` Lambda in
 ```text
 PATCH /v1/endpoints/{id}
 DELETE /v1/endpoints/{id}
+GET /v1/endpoints/{id}/incidents
 ```
 
 The existing `POST /v1/endpoints` route now creates both the DynamoDB monitor and its recurring schedule. Create a new five-minute monitor through the dashboard, then open Amazon EventBridge Scheduler and verify:
@@ -232,6 +233,14 @@ GET /v1/endpoints/{id}/performance
 ```
 
 Allow `GET,POST,OPTIONS` in the API's CORS configuration. The deployed dashboard's `PageSpeed` button calls the POST route, displays the four scores, and the GET route is available for a future history chart.
+
+## API access protection
+
+Set `API_ACCESS_TOKEN` on Lambda to enable the lightweight single-user/demo access guard. The dashboard sends the matching value as a Bearer token using `VITE_API_ACCESS_TOKEN`. This is not a replacement for Cognito or a production multi-tenant identity system, but it prevents unauthenticated public mutations during the assessment demo.
+
+## CDK deployment baseline
+
+The CDK stack in `infrastructure/lib/cloudsentinel-stack.ts` now defines the baseline S3, CloudFront, DynamoDB, ECS/Fargate, ECR, Lambda, API Gateway, Secrets Manager, Glue, and VPC resources. Run `pnpm --filter @cloudsentinel/infrastructure synth` after building the Lambda bundle and web assets. Do not deploy it into the existing Learner Lab resources without first importing or renaming those resources; the current lab account already contains manually created resources.
 
 ## Phase 5 Glue and Athena analytics workflow
 

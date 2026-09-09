@@ -7,9 +7,11 @@ import {
   type AnalyticsOverview,
   type CheckResult,
   type CreateEndpointInput,
+  type Incident,
   type MonitoredEndpoint,
   type MonitoringIntervalMinutes,
   type PerformanceResult,
+  type UpdateEndpointInput,
 } from '@cloudsentinel/shared';
 
 import {
@@ -21,7 +23,10 @@ import {
 import { CloudSentinelApiClient } from './api-client.js';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-const apiClient = apiBaseUrl ? new CloudSentinelApiClient(apiBaseUrl) : undefined;
+const apiAccessToken = import.meta.env.VITE_API_ACCESS_TOKEN?.trim();
+const apiClient = apiBaseUrl && !apiBaseUrl.includes('your-api-id')
+  ? new CloudSentinelApiClient(apiBaseUrl, window.fetch.bind(window), apiAccessToken)
+  : undefined;
 const isAwsMode = apiClient !== undefined;
 const checkPollIntervalMs = 5_000;
 const checkPollAttempts = 12;
@@ -86,6 +91,11 @@ export default function App() {
   const [analytics, setAnalytics] = useState<AnalyticsOverview | undefined>();
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [performanceHistory, setPerformanceHistory] = useState<Record<string, PerformanceResult[]>>({});
+  const [incidentHistory, setIncidentHistory] = useState<Record<string, Incident[]>>({});
+  const [expandedIncidentIds, setExpandedIncidentIds] = useState<ReadonlySet<string>>(new Set());
+  const [expandedActionIds, setExpandedActionIds] = useState<ReadonlySet<string>>(new Set());
+  const [editingEndpointId, setEditingEndpointId] = useState<string>();
+  const [editForm, setEditForm] = useState<UpdateEndpointInput>({});
   const [activeSection, setActiveSection] = useState('overview');
 
   useEffect(() => {
@@ -111,12 +121,16 @@ export default function App() {
       .then(async (items) => {
         if (active) {
           setEndpoints(items);
+          setChecks(items.flatMap((endpoint) => endpoint.latestCheck ? [endpoint.latestCheck] : []));
           setNotice(`Connected to AWS. Loaded ${items.length} monitored endpoints.`);
         }
-        const history = await Promise.all(items.map(async (endpoint) => [
-          endpoint.id,
-          await apiClient.listPerformance(endpoint.id),
-        ] as const));
+        const history = await Promise.all(items.map(async (endpoint) => {
+          try {
+            return [endpoint.id, await apiClient.listPerformance(endpoint.id)] as const;
+          } catch {
+            return [endpoint.id, []] as const;
+          }
+        }));
         if (active) {
           setPerformanceHistory(Object.fromEntries(history));
         }
@@ -266,6 +280,109 @@ export default function App() {
     }
   }
 
+  function beginEdit(endpoint: MonitoredEndpoint) {
+    setEditingEndpointId(endpoint.id);
+    setEditForm({
+      name: endpoint.name,
+      url: endpoint.url,
+      intervalMinutes: endpoint.intervalMinutes,
+      enabled: endpoint.enabled,
+    });
+  }
+
+  async function saveEndpointEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingEndpointId) return;
+
+    const endpointId = editingEndpointId;
+    try {
+      if (apiClient) {
+        const updated = await apiClient.updateEndpoint(endpointId, editForm);
+        setEndpoints((current) => current.map((endpoint) => endpoint.id === endpointId ? updated : endpoint));
+        setNotice(`${updated.name} was updated and its recurring schedule was synchronized.`);
+      } else {
+        setEndpoints((current) => current.map((endpoint) => endpoint.id === endpointId ? {
+          ...endpoint,
+          name: editForm.name?.trim() || endpoint.name,
+          url: editForm.url ? new URL(editForm.url).toString() : endpoint.url,
+          intervalMinutes: editForm.intervalMinutes ?? endpoint.intervalMinutes,
+          enabled: editForm.enabled ?? endpoint.enabled,
+          updatedAt: new Date().toISOString(),
+        } : endpoint));
+        setNotice('Endpoint settings updated in local fallback mode.');
+      }
+      setEditingEndpointId(undefined);
+      setEditForm({});
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The endpoint could not be updated.');
+    }
+  }
+
+  async function toggleEndpoint(endpoint: MonitoredEndpoint) {
+    const enabled = !endpoint.enabled;
+    try {
+      if (apiClient) {
+        const updated = await apiClient.updateEndpoint(endpoint.id, { enabled });
+        setEndpoints((current) => current.map((candidate) => candidate.id === endpoint.id ? updated : candidate));
+      } else {
+        setEndpoints((current) => current.map((candidate) => candidate.id === endpoint.id
+          ? { ...candidate, enabled, updatedAt: new Date().toISOString() }
+          : candidate));
+      }
+      setNotice(`${endpoint.name} is now ${enabled ? 'enabled' : 'disabled'}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The endpoint state could not be changed.');
+    }
+  }
+
+  async function removeEndpoint(endpoint: MonitoredEndpoint) {
+    if (!window.confirm(`Delete ${endpoint.name}? This also removes its recurring schedule.`)) return;
+
+    try {
+      if (apiClient) {
+        await apiClient.deleteEndpoint(endpoint.id);
+      }
+      setEndpoints((current) => current.filter((candidate) => candidate.id !== endpoint.id));
+      setChecks((current) => current.filter((check) => check.endpointId !== endpoint.id));
+      setIncidentHistory((current) => {
+        const next = { ...current };
+        delete next[endpoint.id];
+        return next;
+      });
+      setNotice(`${endpoint.name} was deleted.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The endpoint could not be deleted.');
+    }
+  }
+
+  async function loadIncidents(endpointId: string) {
+    if (!apiClient) {
+      setExpandedIncidentIds((current) => {
+        const next = new Set(current);
+        if (next.has(endpointId)) next.delete(endpointId); else next.add(endpointId);
+        return next;
+      });
+      setNotice('Incident history is available after connecting the dashboard to AWS.');
+      return;
+    }
+
+    try {
+      const items = await apiClient.listIncidents(endpointId);
+      setIncidentHistory((current) => ({ ...current, [endpointId]: items }));
+      setExpandedIncidentIds((current) => new Set(current).add(endpointId));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Incident history could not be loaded.');
+    }
+  }
+
+  function toggleActions(endpointId: string) {
+    setExpandedActionIds((current) => {
+      const next = new Set(current);
+      if (next.has(endpointId)) next.delete(endpointId); else next.add(endpointId);
+      return next;
+    });
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -354,35 +471,80 @@ export default function App() {
               {endpoints.map((endpoint) => {
                 const isRunning = runningEndpointIds.has(endpoint.id);
                 const isPerformanceRunning = runningPerformanceIds.has(endpoint.id);
-                return <div className="endpoint-row" key={endpoint.id}>
-                  <div className={`pulse pulse-${getEndpointState(endpoint).toLowerCase()}`} />
-                  <div className="endpoint-identity">
-                    <strong>{endpoint.name}</strong>
-                    <span>{endpoint.url}</span>
+                return <div className="endpoint-item" key={endpoint.id}>
+                  <div className="endpoint-row">
+                    <div className={`pulse pulse-${getEndpointState(endpoint).toLowerCase()}`} />
+                    <div className="endpoint-identity">
+                      <strong>{endpoint.name}</strong>
+                      <span>{endpoint.url}</span>
+                    </div>
+                    <div className="endpoint-meta">
+                      <span>Every {endpoint.intervalMinutes} min</span>
+                      <small>{formatTime(endpoint.latestCheck?.checkedAt)}</small>
+                    </div>
+                    <StatusBadge endpoint={endpoint} />
+                    <div className="endpoint-actions">
+                      <button className="button-secondary" disabled={isRunning} type="button" onClick={() => void runCheck(endpoint.id)}>
+                        {isRunning ? 'Checking...' : 'Run check'}
+                      </button>
+                      <button className="button-secondary" disabled={isPerformanceRunning} type="button" onClick={() => void runPerformance(endpoint.id)}>
+                        {isPerformanceRunning ? 'Measuring...' : 'PageSpeed'}
+                      </button>
+                      <button
+                        className="button-secondary button-manage"
+                        type="button"
+                        aria-expanded={expandedActionIds.has(endpoint.id)}
+                        onClick={() => toggleActions(endpoint.id)}
+                      >
+                        {expandedActionIds.has(endpoint.id) ? 'Close' : 'Manage'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="endpoint-meta">
-                    <span>Every {endpoint.intervalMinutes} min</span>
-                    <small>{formatTime(endpoint.latestCheck?.checkedAt)}</small>
-                  </div>
-                  <StatusBadge endpoint={endpoint} />
-                  <div className="endpoint-actions">
-                    <button
-                      className="button-secondary"
-                      disabled={isRunning}
-                      type="button"
-                      onClick={() => void runCheck(endpoint.id)}
-                    >
-                      {isRunning ? 'Checking...' : 'Run check'}
-                    </button>
-                    <button
-                      className="button-secondary"
-                      disabled={isPerformanceRunning}
-                      type="button"
-                      onClick={() => void runPerformance(endpoint.id)}
-                    >
-                      {isPerformanceRunning ? 'Measuring...' : 'PageSpeed'}
-                    </button>
-                  </div>
+                  {expandedActionIds.has(endpoint.id) && (
+                    <div className="endpoint-manage-actions">
+                      <button className="button-secondary" type="button" onClick={() => beginEdit(endpoint)}>Edit</button>
+                      <button className="button-secondary" type="button" onClick={() => void toggleEndpoint(endpoint)}>
+                        {endpoint.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                      <button className="button-secondary button-danger" type="button" onClick={() => void removeEndpoint(endpoint)}>Delete</button>
+                      <button className="button-secondary" type="button" onClick={() => void loadIncidents(endpoint.id)}>
+                        {expandedIncidentIds.has(endpoint.id) ? 'Hide incidents' : 'Incidents'}
+                      </button>
+                    </div>
+                  )}
+                  {editingEndpointId === endpoint.id && (
+                    <form className="edit-panel" onSubmit={(event) => void saveEndpointEdit(event)}>
+                      <label>
+                        Name
+                        <input required maxLength={80} value={editForm.name ?? ''} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
+                      </label>
+                      <label>
+                        URL
+                        <input required type="url" value={editForm.url ?? ''} onChange={(event) => setEditForm({ ...editForm, url: event.target.value })} />
+                      </label>
+                      <label>
+                        Interval
+                        <select value={editForm.intervalMinutes ?? endpoint.intervalMinutes} onChange={(event) => setEditForm({ ...editForm, intervalMinutes: Number(event.target.value) as MonitoringIntervalMinutes })}>
+                          {monitoringIntervals.map((interval) => <option key={interval} value={interval}>Every {interval} minutes</option>)}
+                        </select>
+                      </label>
+                      <button className="button-secondary" type="submit">Save changes</button>
+                      <button className="button-secondary" type="button" onClick={() => setEditingEndpointId(undefined)}>Cancel</button>
+                    </form>
+                  )}
+                  {expandedIncidentIds.has(endpoint.id) && (
+                    <div className="incident-list" aria-label={`${endpoint.name} incident history`}>
+                      {(incidentHistory[endpoint.id] ?? []).length === 0
+                        ? <span className="empty-inline">No persisted incidents.</span>
+                        : (incidentHistory[endpoint.id] ?? []).map((incident) => (
+                          <div className="incident-row" key={incident.id}>
+                            <strong>{incident.status}</strong>
+                            <span>Opened {formatTime(incident.openedAt)}</span>
+                            <span>{incident.recoveredAt ? `Recovered ${formatTime(incident.recoveredAt)}` : 'Still open'}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               })}
             </div>
@@ -480,13 +642,22 @@ export default function App() {
               </button>
             </div>
             {!analytics && <p className="empty-state">Load Athena-backed history when the analytics resources are deployed.</p>}
-            {analytics && (
-              <div className="analytics-grid" aria-label="Historical analytics summary">
-                <div><strong>{analytics.uptimePercent === null ? '--' : `${analytics.uptimePercent}%`}</strong><span>Uptime</span></div>
-                <div><strong>{analytics.totalChecks}</strong><span>Checks</span></div>
-                <div><strong>{analytics.averageResponseTimeMs === null ? '--' : `${analytics.averageResponseTimeMs} ms`}</strong><span>Avg response</span></div>
-                <div><strong>{analytics.incidentCount}</strong><span>Incidents</span></div>
-              </div>
+              {analytics && (
+                <>
+                  <div className="analytics-grid" aria-label="Historical analytics summary">
+                    <div><strong>{analytics.uptimePercent === null ? '--' : `${analytics.uptimePercent}%`}</strong><span>Uptime</span></div>
+                    <div><strong>{analytics.totalChecks}</strong><span>Checks</span></div>
+                    <div><strong>{analytics.averageResponseTimeMs === null ? '--' : `${analytics.averageResponseTimeMs} ms`}</strong><span>Avg response</span></div>
+                    <div><strong>{analytics.incidentCount}</strong><span>Incidents</span></div>
+                  </div>
+                  <div className="analytics-breakdown" aria-label="Up and down check breakdown">
+                    <div className="analytics-breakdown-labels"><span>UP {analytics.upChecks}</span><span>DOWN {analytics.downChecks}</span></div>
+                    <div className="analytics-bar">
+                      <span className="analytics-bar-up" style={{ width: `${analytics.totalChecks ? (analytics.upChecks / analytics.totalChecks) * 100 : 0}%` }} />
+                      <span className="analytics-bar-down" style={{ width: `${analytics.totalChecks ? (analytics.downChecks / analytics.totalChecks) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                </>
             )}
           </article>
 
@@ -529,13 +700,13 @@ export default function App() {
 
           <article id="architecture" className="panel architecture-panel">
             <div>
-              <span className="eyebrow">Next deployed path</span>
-              <h2>From dashboard to evidence</h2>
-              <p>Each phase adds one demonstrable, automated path while keeping the UI usable.</p>
-            </div>
-            <div className="flow" aria-label="Planned AWS request flow">
-              <span>React</span><i>1</i><span>API Gateway</span><i>2</i><span>Lambda</span><i>3</i><span>DynamoDB</span>
-            </div>
+                <span className="eyebrow">Deployed AWS flow</span>
+                <h2>From dashboard to evidence</h2>
+                <p>Client actions now reach the live API, monitoring worker, persisted history, analytics, and performance services.</p>
+              </div>
+              <div className="flow" aria-label="Deployed AWS request flow">
+              <span>React</span><i>1</i><span>API Gateway</span><i>2</i><span>Lambda</span><i>3</i><span>DynamoDB</span><i>4</i><span>ECS</span><i>5</i><span>Athena</span>
+              </div>
           </article>
         </section>
       </main>

@@ -1,4 +1,11 @@
-import type { AnalyticsOverview, CreateEndpointInput, MonitoredEndpoint, PerformanceResult } from '@cloudsentinel/shared';
+import type {
+  AnalyticsOverview,
+  CreateEndpointInput,
+  Incident,
+  MonitoredEndpoint,
+  PerformanceResult,
+  UpdateEndpointInput,
+} from '@cloudsentinel/shared';
 
 interface EndpointListResponse {
   items: MonitoredEndpoint[];
@@ -13,6 +20,10 @@ interface PerformanceListResponse {
   items: PerformanceResult[];
 }
 
+interface IncidentListResponse {
+  items: Incident[];
+}
+
 interface ApiErrorResponse {
   error?: {
     message?: string;
@@ -24,10 +35,12 @@ type FetchClient = typeof fetch;
 export class CloudSentinelApiClient {
   readonly #baseUrl: string;
   readonly #fetch: FetchClient;
+  readonly #accessToken: string | undefined;
 
   public constructor(
     baseUrl: string,
     fetchClient: FetchClient = window.fetch.bind(window),
+    accessToken?: string,
   ) {
     const parsedUrl = new URL(baseUrl);
     if (parsedUrl.protocol !== 'https:' && parsedUrl.hostname !== 'localhost') {
@@ -36,6 +49,7 @@ export class CloudSentinelApiClient {
 
     this.#baseUrl = parsedUrl.toString().replace(/\/$/, '');
     this.#fetch = fetchClient;
+    this.#accessToken = accessToken?.trim() || undefined;
   }
 
   public async listEndpoints(): Promise<MonitoredEndpoint[]> {
@@ -49,6 +63,18 @@ export class CloudSentinelApiClient {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
     });
+  }
+
+  public updateEndpoint(endpointId: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint> {
+    return this.#request<MonitoredEndpoint>(`/v1/endpoints/${encodeURIComponent(endpointId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  }
+
+  public async deleteEndpoint(endpointId: string): Promise<void> {
+    await this.#request(`/v1/endpoints/${encodeURIComponent(endpointId)}`, { method: 'DELETE' });
   }
 
   public startCheck(endpointId: string): Promise<StartCheckResponse> {
@@ -68,6 +94,11 @@ export class CloudSentinelApiClient {
       .then((response) => response.items);
   }
 
+  public listIncidents(endpointId: string): Promise<Incident[]> {
+    return this.#request<IncidentListResponse>(`/v1/endpoints/${encodeURIComponent(endpointId)}/incidents`)
+      .then((response) => response.items);
+  }
+
   public getAnalyticsOverview(range?: { from?: string; to?: string }): Promise<AnalyticsOverview> {
     const query = new URLSearchParams();
     if (range?.from) query.set('from', range.from);
@@ -77,7 +108,18 @@ export class CloudSentinelApiClient {
   }
 
   async #request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await this.#fetch(`${this.#baseUrl}${path}`, init);
+    if (!this.#accessToken) {
+      const response = await this.#fetch(`${this.#baseUrl}${path}`, init);
+      return this.#parseResponse<T>(response);
+    }
+
+    const headers = new Headers(init?.headers);
+    headers.set('authorization', `Bearer ${this.#accessToken}`);
+    const response = await this.#fetch(`${this.#baseUrl}${path}`, { ...init, headers });
+    return this.#parseResponse<T>(response);
+  }
+
+  async #parseResponse<T>(response: Response): Promise<T> {
     const payload = await response.json() as T & ApiErrorResponse;
 
     if (!response.ok) {

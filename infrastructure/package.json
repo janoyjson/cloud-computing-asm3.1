@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "synth": "pnpm build && cdk synth",
+    "synth": "pnpm --filter @cloudsentinel/api package:lambda && pnpm --filter @cloudsentinel/web build && pnpm build && cdk synth",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
