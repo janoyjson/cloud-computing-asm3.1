@@ -5,7 +5,7 @@ import { discordWebhookSecretId, type AnalyticsOverview, type CreateEndpointInpu
 import { EcsCheckTaskStarter, type CheckTaskStarter } from './check-task-starter.js';
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
 import { ValidationError, type EndpointRepository } from './endpoint-store.js';
-import { PageSpeedClient } from './pagespeed-client.js';
+import { PageSpeedClient, PageSpeedError } from './pagespeed-client.js';
 import { DynamoPerformanceStore } from './performance-store.js';
 import { AthenaAnalyticsStore, type AnalyticsRange } from './analytics-store.js';
 import { assertPublicHttpUrl } from './url-safety.js';
@@ -428,6 +428,9 @@ export function createHandler(
       }
       if (error instanceof ValidationError) {
         return json(400, { error: { code: 'VALIDATION_ERROR', message: error.message } });
+      }
+      if (error instanceof PageSpeedError) {
+        return json(502, { error: { code: 'PAGESPEED_ERROR', message: error.message } });
       }
 
       if (error instanceof SyntaxError) {

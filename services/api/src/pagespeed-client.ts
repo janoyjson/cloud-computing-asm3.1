@@ -19,6 +19,13 @@ interface PageSpeedResponse {
   };
 }
 
+export class PageSpeedError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'PageSpeedError';
+  }
+}
+
 function score(categories: Record<string, { score?: number }> | undefined, name: string): number {
   const value = categories?.[name]?.score;
   if (typeof value !== 'number') {
@@ -91,7 +98,7 @@ export class PageSpeedClient {
 
     if (lastError) {
       if (lastError instanceof DOMException && lastError.name === 'TimeoutError') {
-        throw new Error(`PageSpeed timed out after ${this.#attemptTimeoutMs / 1000} seconds. The target may block Lighthouse or be too slow. Try a public HTTPS page and retry.`);
+        throw new PageSpeedError(`PageSpeed timed out after ${this.#attemptTimeoutMs / 1000} seconds. The target may block Lighthouse or be too slow. Try a public HTTPS page and retry.`);
       }
       throw new Error(`PageSpeed request failed after ${this.#maxAttempts} attempts: ${this.#errorMessage(lastError)}`);
     }
@@ -102,7 +109,7 @@ export class PageSpeedClient {
 
     if (!response.ok) {
       const details = await this.#readErrorDetails(response);
-      throw new Error(`PageSpeed rejected the request with HTTP ${response.status}${details ? `: ${details}` : ` after ${this.#maxAttempts} attempts.`}`);
+      throw new PageSpeedError(`PageSpeed rejected the request with HTTP ${response.status}${details ? `: ${details}` : ` after ${this.#maxAttempts} attempts.`}`);
     }
 
     const payload = await response.json() as PageSpeedResponse;

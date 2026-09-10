@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { EndpointStore } from './endpoint-store.js';
 import { createHandler } from './handler.js';
+import { PageSpeedError } from './pagespeed-client.js';
 
 function event(routeKey: string, body?: string, pathParameters?: Record<string, string>): APIGatewayProxyEventV2 {
   return { routeKey, body, pathParameters } as APIGatewayProxyEventV2;
@@ -101,6 +102,36 @@ describe('API handler', () => {
     expect(analyze).toHaveBeenCalledWith('endpoint-123', 'https://example.com/health');
     expect(save).toHaveBeenCalledWith(result);
     expect(list).toHaveBeenCalledWith('endpoint-123');
+  });
+
+  it('returns the upstream PageSpeed reason instead of a generic 500', async () => {
+    const store = new EndpointStore([{
+      id: 'endpoint-123',
+      name: 'Facebook',
+      url: 'https://facebook.com',
+      intervalMinutes: 15,
+      enabled: true,
+      createdAt: '2026-09-07T00:00:00.000Z',
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    }]);
+    const handler = createHandler(
+      () => store,
+      vi.fn(),
+      vi.fn(),
+      () => ({ analyze: vi.fn().mockRejectedValue(new PageSpeedError('Lighthouse could not analyse this page.')) }),
+      vi.fn(),
+    );
+
+    const response = await handler(
+      event('POST /v1/endpoints/{id}/performance', undefined, { id: 'endpoint-123' }),
+      {} as never,
+      vi.fn(),
+    );
+
+    expect(response).toMatchObject({ statusCode: 502 });
+    expect(JSON.parse(responseBody(response))).toEqual({
+      error: { code: 'PAGESPEED_ERROR', message: 'Lighthouse could not analyse this page.' },
+    });
   });
 
   it('returns Athena-backed analytics for the requested range', async () => {
