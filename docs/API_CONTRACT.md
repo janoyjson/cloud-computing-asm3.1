@@ -1,8 +1,36 @@
 # CloudSentinel API contract
 
+## Authentication
+
+The deployed HTTP API uses application-managed accounts in DynamoDB and signed HMAC-SHA256 JWT sessions. `POST /v1/auth/register` and `POST /v1/auth/login` are public. Every other route below except `GET /v1/health` requires `Authorization: Bearer <JWT>`. The browser stores the short-lived session locally and sends it with each AWS request.
+
 Base path: `/v1`
 
-When `API_ACCESS_TOKEN` is configured, all routes except health require `Authorization: Bearer <token>`. This is a single-user/demo access guard; production multi-user authentication should use a managed identity provider such as Amazon Cognito.
+The Lambda signs tokens with `JWT_SECRET` (or the existing `API_ACCESS_TOKEN` value as a Learner Lab fallback). The token subject is the user ID used as the monitor `ownerId`, providing the account-to-URL ownership boundary.
+
+### `GET /settings/discord`
+
+Returns only whether the signed-in user's Discord webhook is configured:
+
+```json
+{ "configured": true }
+```
+
+The webhook URL is never returned to the browser.
+
+### `PUT /settings/discord`
+
+Request:
+
+```json
+{ "webhookUrl": "https://discord.com/api/webhooks/..." }
+```
+
+The API validates the HTTPS Discord destination and stores it in a per-user AWS Secrets Manager secret. Existing schedules are refreshed so that the user's future ECS tasks use that secret.
+
+### `DELETE /settings/discord`
+
+Removes the signed-in user's webhook and disables Discord delivery for that user's monitors.
 
 All success and error bodies use JSON. Errors follow:
 

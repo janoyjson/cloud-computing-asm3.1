@@ -78,20 +78,27 @@ export class AthenaAnalyticsStore {
     this.#maxWaitMilliseconds = options.maxWaitMilliseconds ?? 20_000;
   }
 
-  public async overview(range: AnalyticsRange): Promise<AnalyticsOverview> {
+  public async overview(range: AnalyticsRange, endpointIds?: readonly string[]): Promise<AnalyticsOverview> {
     const from = sqlTimestamp(range.from);
     const to = sqlTimestamp(range.to);
     if (new Date(from) >= new Date(to)) {
       throw new Error('Analytics range must end after it starts.');
     }
 
+    if (endpointIds && endpointIds.length === 0) {
+      return { from, to, totalChecks: 0, upChecks: 0, downChecks: 0, uptimePercent: null, averageResponseTimeMs: null, incidentCount: 0 };
+    }
+
+    const endpointFilter = endpointIds
+      ? ` AND endpointid IN (${endpointIds.map((endpointId) => `'${endpointId.replaceAll("'", "''")}'`).join(', ')})`
+      : '';
     const queryExecution = await this.#athena.send(new StartQueryExecutionCommand({
       QueryString: `SELECT count(*) AS total_checks,\n` +
         `coalesce(sum(CASE WHEN state = 'UP' THEN 1 ELSE 0 END), 0) AS up_checks,\n` +
         `coalesce(sum(CASE WHEN state = 'DOWN' THEN 1 ELSE 0 END), 0) AS down_checks,\n` +
         `avg(try_cast(responsetimems AS double)) AS average_response_time_ms\n` +
         `FROM "${this.#database}"."${this.#checksTable}"\n` +
-        `WHERE from_iso8601_timestamp(checkedat) BETWEEN from_iso8601_timestamp('${from}') AND from_iso8601_timestamp('${to}')`,
+        `WHERE from_iso8601_timestamp(checkedat) BETWEEN from_iso8601_timestamp('${from}') AND from_iso8601_timestamp('${to}')` + endpointFilter,
       QueryExecutionContext: { Database: this.#database },
       ResultConfiguration: { OutputLocation: this.#outputLocation },
     }));
@@ -99,7 +106,7 @@ export class AthenaAnalyticsStore {
     if (!queryId) throw new Error('Athena did not return a query execution ID.');
 
     const metrics = await this.#waitForMetrics(queryId);
-    const incidentCount = await this.#countIncidents(from, to);
+    const incidentCount = await this.#countIncidents(from, to, endpointIds);
     return {
       from,
       to,
@@ -129,15 +136,22 @@ export class AthenaAnalyticsStore {
     throw new Error('Athena query timed out.');
   }
 
-  async #countIncidents(from: string, to: string): Promise<number> {
+  async #countIncidents(from: string, to: string, endpointIds?: readonly string[]): Promise<number> {
     let count = 0;
     let exclusiveStartKey: Record<string, unknown> | undefined;
     do {
       const response = await this.#document.send(new ScanCommand({
         TableName: this.#incidentsTable,
-        FilterExpression: '#openedAt BETWEEN :from AND :to',
-        ExpressionAttributeNames: { '#openedAt': 'openedAt' },
-        ExpressionAttributeValues: { ':from': from, ':to': to },
+        FilterExpression: '#openedAt BETWEEN :from AND :to' + (endpointIds ? ' AND #endpointId IN (' + endpointIds.map((_, index) => `:endpointId${index}`).join(', ') + ')' : ''),
+        ExpressionAttributeNames: {
+          '#openedAt': 'openedAt',
+          ...(endpointIds ? { '#endpointId': 'endpointId' } : {}),
+        },
+        ExpressionAttributeValues: {
+          ':from': from,
+          ':to': to,
+          ...(endpointIds ? Object.fromEntries(endpointIds.map((endpointId, index) => [`:endpointId${index}`, endpointId])) : {}),
+        },
         ProjectionExpression: 'openedAt',
         ExclusiveStartKey: exclusiveStartKey,
       }));

@@ -47,6 +47,7 @@ export class CloudSentinelStack extends Stack {
     });
 
     const monitorsTable = this.createTable('MonitorsTable', 'id');
+    monitorsTable.addGlobalSecondaryIndex({ indexName: 'ownerId-createdAt-index', partitionKey: { name: 'ownerId', type: dynamodb.AttributeType.STRING }, sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING } });
     const checksTable = this.createTable('ChecksTable', 'endpointId', 'checkedAt');
     const incidentsTable = this.createTable('IncidentsTable', 'endpointId', 'openedAt');
     const performanceTable = this.createTable('PerformanceTable', 'endpointId', 'measuredAt');
@@ -60,6 +61,11 @@ export class CloudSentinelStack extends Stack {
       secretName: 'cloudsentinel/discord-webhook',
       description: 'JSON object containing the CloudSentinel Discord webhook URL.',
       removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const userNotificationSecretArn = this.formatArn({
+      service: 'secretsmanager',
+      resource: 'secret',
+      resourceName: 'cloudsentinel/discord-webhooks/*',
     });
 
     const vpc = new ec2.Vpc(this, 'Vpc', { maxAzs: 2, natGateways: 0, subnetConfiguration: [{ name: 'public', subnetType: ec2.SubnetType.PUBLIC }] });
@@ -77,12 +83,16 @@ export class CloudSentinelStack extends Stack {
     checksTable.grantReadWriteData(taskRole);
     incidentsTable.grantReadWriteData(taskRole);
     notificationSecret.grantRead(taskRole);
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue'],
+      resources: [userNotificationSecretArn],
+    }));
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'WorkerTaskDefinition', { family: 'cloudsentinel-monitor-worker', cpu: 256, memoryLimitMiB: 512, taskRole, executionRole });
     taskDefinition.addContainer('monitor-worker', {
       image: ecs.ContainerImage.fromEcrRepository(workerRepository, '0.3.0'),
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'worker', logGroup }),
-      environment: { MONITORS_TABLE_NAME: monitorsTable.tableName, CHECKS_TABLE_NAME: checksTable.tableName, INCIDENTS_TABLE_NAME: incidentsTable.tableName, RESULTS_BUCKET_NAME: resultsBucket.bucketName, NOTIFICATION_SECRET_ID: notificationSecret.secretName },
+      environment: { MONITORS_TABLE_NAME: monitorsTable.tableName, CHECKS_TABLE_NAME: checksTable.tableName, INCIDENTS_TABLE_NAME: incidentsTable.tableName, RESULTS_BUCKET_NAME: resultsBucket.bucketName },
     });
 
     const schedulerRole = new iam.Role(this, 'SchedulerRole', { assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com') });
@@ -98,7 +108,21 @@ export class CloudSentinelStack extends Stack {
     apiRole.addToPolicy(new iam.PolicyStatement({ actions: ['ecs:RunTask'], resources: [taskDefinition.taskDefinitionArn, `${taskDefinition.taskDefinitionArn}:*`] }));
     apiRole.addToPolicy(new iam.PolicyStatement({ actions: ['iam:PassRole'], resources: [taskRole.roleArn, executionRole.roleArn] }));
     apiRole.addToPolicy(new iam.PolicyStatement({ actions: ['scheduler:CreateSchedule', 'scheduler:UpdateSchedule', 'scheduler:DeleteSchedule'], resources: ['*'] }));
+    apiRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:CreateSecret'],
+      resources: ['*'],
+    }));
+    apiRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:DeleteSecret', 'secretsmanager:DescribeSecret', 'secretsmanager:PutSecretValue'],
+      resources: [userNotificationSecretArn],
+    }));
     apiRole.addToPolicy(new iam.PolicyStatement({ actions: ['athena:StartQueryExecution', 'athena:GetQueryExecution', 'athena:GetQueryResults'], resources: ['*'] }));
+    const jwtSecret = new secretsmanager.Secret(this, 'JwtSecret', {
+      secretName: 'cloudsentinel/jwt-secret',
+      description: 'HMAC secret used to sign CloudSentinel application JWT sessions.',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
 
     const apiFunction = new lambda.Function(this, 'ApiFunction', {
       functionName: 'CloudSentinelApi',
@@ -110,6 +134,8 @@ export class CloudSentinelStack extends Stack {
       memorySize: 256,
       timeout: Duration.seconds(35),
       environment: {
+        USERS_TABLE_NAME: monitorsTable.tableName,
+        JWT_SECRET: jwtSecret.secretValue.unsafeUnwrap(),
         MONITORS_TABLE_NAME: monitorsTable.tableName,
         PERFORMANCE_TABLE_NAME: performanceTable.tableName,
         INCIDENTS_TABLE_NAME: incidentsTable.tableName,
@@ -128,10 +154,10 @@ export class CloudSentinelStack extends Stack {
         ATHENA_OUTPUT_LOCATION: `s3://${resultsBucket.bucketName}/athena/`,
       },
     });
-    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', { apiName: 'CloudSentinelHttpApi', corsPreflight: { allowHeaders: ['content-type', 'authorization'], allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PATCH, apigwv2.CorsHttpMethod.DELETE, apigwv2.CorsHttpMethod.OPTIONS], allowOrigins: ['*'] } });
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', { apiName: 'CloudSentinelHttpApi', corsPreflight: { allowHeaders: ['content-type', 'authorization'], allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PUT, apigwv2.CorsHttpMethod.PATCH, apigwv2.CorsHttpMethod.DELETE, apigwv2.CorsHttpMethod.OPTIONS], allowOrigins: ['*'] } });
     const integration = new integrations.HttpLambdaIntegration('ApiIntegration', apiFunction);
     for (const [routePath, method] of [
-      ['/v1/health', apigwv2.HttpMethod.GET], ['/v1/endpoints', apigwv2.HttpMethod.GET], ['/v1/endpoints', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}', apigwv2.HttpMethod.PATCH], ['/v1/endpoints/{id}', apigwv2.HttpMethod.DELETE], ['/v1/endpoints/{id}/checks', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}/performance', apigwv2.HttpMethod.GET], ['/v1/endpoints/{id}/performance', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}/incidents', apigwv2.HttpMethod.GET], ['/v1/analytics/overview', apigwv2.HttpMethod.GET],
+      ['/v1/health', apigwv2.HttpMethod.GET], ['/v1/auth/register', apigwv2.HttpMethod.POST], ['/v1/auth/login', apigwv2.HttpMethod.POST], ['/v1/auth/me', apigwv2.HttpMethod.GET], ['/v1/settings/discord', apigwv2.HttpMethod.GET], ['/v1/settings/discord', apigwv2.HttpMethod.PUT], ['/v1/settings/discord', apigwv2.HttpMethod.DELETE], ['/v1/endpoints', apigwv2.HttpMethod.GET], ['/v1/endpoints', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}', apigwv2.HttpMethod.PATCH], ['/v1/endpoints/{id}', apigwv2.HttpMethod.DELETE], ['/v1/endpoints/{id}/checks', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}/performance', apigwv2.HttpMethod.GET], ['/v1/endpoints/{id}/performance', apigwv2.HttpMethod.POST], ['/v1/endpoints/{id}/incidents', apigwv2.HttpMethod.GET], ['/v1/analytics/overview', apigwv2.HttpMethod.GET],
     ] as const) {
       httpApi.addRoutes({ path: routePath, methods: [method], integration });
     }

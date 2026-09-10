@@ -24,6 +24,10 @@ interface IncidentListResponse {
   items: Incident[];
 }
 
+export interface DiscordWebhookSettings {
+  configured: boolean;
+}
+
 interface ApiErrorResponse {
   error?: {
     message?: string;
@@ -35,7 +39,7 @@ type FetchClient = typeof fetch;
 export class CloudSentinelApiClient {
   readonly #baseUrl: string;
   readonly #fetch: FetchClient;
-  readonly #accessToken: string | undefined;
+  #accessToken: string | undefined;
 
   public constructor(
     baseUrl: string,
@@ -52,9 +56,29 @@ export class CloudSentinelApiClient {
     this.#accessToken = accessToken?.trim() || undefined;
   }
 
+  public setAccessToken(accessToken?: string): void {
+    this.#accessToken = accessToken?.trim() || undefined;
+  }
+
   public async listEndpoints(): Promise<MonitoredEndpoint[]> {
     const response = await this.#request<EndpointListResponse>('/v1/endpoints');
     return response.items;
+  }
+
+  public getDiscordWebhookSettings(): Promise<DiscordWebhookSettings> {
+    return this.#request<DiscordWebhookSettings>('/v1/settings/discord');
+  }
+
+  public saveDiscordWebhook(webhookUrl: string): Promise<DiscordWebhookSettings> {
+    return this.#request<DiscordWebhookSettings>('/v1/settings/discord', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ webhookUrl }),
+    });
+  }
+
+  public removeDiscordWebhook(): Promise<DiscordWebhookSettings> {
+    return this.#request<DiscordWebhookSettings>('/v1/settings/discord', { method: 'DELETE' });
   }
 
   public createEndpoint(input: CreateEndpointInput): Promise<MonitoredEndpoint> {

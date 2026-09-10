@@ -12,6 +12,16 @@ This guide records the AWS Management Console settings used for the Learner Lab.
 - Glue uses `G.1X` or `Standard`, at most 10 workers, and concurrency 1.
 - CloudFront and EventBridge Scheduler are not named in the allowed-service list and require a permission test before becoming dependencies.
 
+## Application JWT authentication
+
+The deployed dashboard uses application-managed HMAC JWT sessions. In the Learner Lab deployment, user records are stored as `entityType=USER` items in the existing `CloudSentinelMonitors` table so no additional table permission is required.
+
+1. Store a random high-entropy signing value in the `cloudsentinel/jwt-secret` Secrets Manager secret and expose it to Lambda as `JWT_SECRET`. If Learner Lab blocks Secrets Manager changes, an existing high-entropy `API_ACCESS_TOKEN` can be reused as the signing secret.
+2. Set Lambda `USERS_TABLE_NAME` to `CloudSentinelMonitors` and add the public routes `POST /v1/auth/register`, `POST /v1/auth/login`, and `GET /v1/auth/me`.
+4. Set the frontend `VITE_API_BASE_URL` when building the deployed dashboard; no Cognito values are needed.
+
+The client stores the short-lived JWT session in browser storage and sends it as a bearer token. New monitor records are assigned to the JWT `sub` claim and queried through the `ownerId-createdAt-index` GSI. Assign existing lab records to the first application user with `services/api/scripts/assign-monitor-owner.ps1` after registering through the dashboard.
+
 ## Phase 2 DynamoDB tables
 
 All tables use Standard table class, on-demand capacity, AWS-owned encryption, no secondary indexes, and deletion protection off for the lab.
@@ -199,23 +209,22 @@ Wait for the first invocation, then verify a new task with `MONITOR_SOURCE=SCHED
 
 ## Phase 4 incidents and Discord notifications
 
-Create a Discord incoming webhook for the alert channel, then store it in Secrets Manager in `us-east-1` rather than in source code, task-definition plaintext, or shell history:
+Each signed-in user configures a Discord incoming webhook from the dashboard's Discord notifications panel. The API stores the URL in a separate Secrets Manager secret in `us-east-1`; users never receive another user's webhook or secret value.
 
 ```text
-Secret name: cloudsentinel/discord-webhook
+Secret name pattern: cloudsentinel/discord-webhooks/<owner-safe-id>
 Secret JSON key: url
 Encryption: aws/secretsmanager
-Rotation: disabled for the Learner Lab
+Rotation: disabled for the Learner Lab; replacing the URL updates the user's secret
 ```
 
-Publish the locally tested `cloudsentinel-monitor-worker:0.3.0` image to the existing immutable ECR repository. Create task-definition revision 3 from revision 2, change the image tag to `0.3.0`, and add:
+Publish the locally tested monitoring-worker image to the existing immutable ECR repository. Create a new task-definition revision without a global webhook secret. User-owned tasks receive `NOTIFICATION_SECRET_ID` as an ECS container override, so a user's alert can never fall back to another user's channel:
 
 ```text
 INCIDENTS_TABLE_NAME=CloudSentinelIncidents
-NOTIFICATION_SECRET_ID=cloudsentinel/discord-webhook
 ```
 
-Keep the existing monitor, check, results-bucket, logging, role, CPU, memory, and networking settings. Update Lambda's `ECS_TASK_DEFINITION` and `ECS_TASK_DEFINITION_ARN` values to revision 3. Existing EventBridge schedules receive the new revision after the corresponding endpoint is patched; newly created endpoints use it immediately.
+Keep the existing monitor, check, results-bucket, logging, role, CPU, memory, and networking settings. Grant Lambda permission to create/update/delete secrets under `cloudsentinel/discord-webhooks/*`, and grant the worker task role permission to describe/read those secrets. Existing EventBridge schedules are refreshed whenever a user saves or removes their webhook.
 
 ## Phase 5 PageSpeed performance workflow
 
@@ -236,7 +245,7 @@ Allow `GET,POST,OPTIONS` in the API's CORS configuration. The deployed dashboard
 
 ## API access protection
 
-Set `API_ACCESS_TOKEN` on Lambda to enable the lightweight single-user/demo access guard. The dashboard sends the matching value as a Bearer token using `VITE_API_ACCESS_TOKEN`. This is not a replacement for Cognito or a production multi-tenant identity system, but it prevents unauthenticated public mutations during the assessment demo.
+`API_ACCESS_TOKEN` can be reused as the JWT signing secret when `JWT_SECRET` cannot be added in Learner Lab. Once a user signs in, the dashboard replaces it with the signed session token.
 
 ## CDK deployment baseline
 

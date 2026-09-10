@@ -55,6 +55,7 @@ export class DynamoIncidentStore implements IncidentRepository {
     const incident: Incident = {
       id: this.#createId(),
       endpointId: result.endpointId,
+      ...(result.ownerId ? { ownerId: result.ownerId } : {}),
       openedAt: result.checkedAt,
       status: 'OPEN',
       openingCheckId: `${result.endpointId}#${result.checkedAt}`,

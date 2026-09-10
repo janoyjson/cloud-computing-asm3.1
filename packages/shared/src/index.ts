@@ -1,11 +1,33 @@
 export const monitoringIntervals = [5, 15, 30, 60] as const;
+export const discordWebhookSecretPrefix = 'cloudsentinel/discord-webhooks';
 
 export type MonitoringIntervalMinutes = (typeof monitoringIntervals)[number];
 export type MonitorState = 'UP' | 'DOWN' | 'UNKNOWN';
 export type CheckSource = 'MANUAL' | 'SCHEDULED';
 
+export function discordWebhookSecretId(ownerId: string): string {
+  const normalizedOwnerId = ownerId.trim();
+  if (!normalizedOwnerId) {
+    throw new Error('An owner ID is required to build a Discord webhook secret ID.');
+  }
+
+  return `${discordWebhookSecretPrefix}/${normalizedOwnerId.replace(/[^a-zA-Z0-9_.-]/g, '-')}`;
+}
+
+export function isApprovedDiscordWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && (url.hostname === 'discord.com' || url.hostname === 'discordapp.com')
+      && url.pathname.startsWith('/api/webhooks/');
+  } catch {
+    return false;
+  }
+}
+
 export interface CheckResult {
   endpointId: string;
+  ownerId?: string;
   checkedAt: string;
   state: Exclude<MonitorState, 'UNKNOWN'>;
   source: CheckSource;
@@ -16,6 +38,7 @@ export interface CheckResult {
 
 export interface MonitoredEndpoint {
   id: string;
+  ownerId?: string;
   name: string;
   url: string;
   intervalMinutes: MonitoringIntervalMinutes;
@@ -41,6 +64,7 @@ export interface UpdateEndpointInput {
 export interface Incident {
   id: string;
   endpointId: string;
+  ownerId?: string;
   openedAt: string;
   recoveredAt?: string;
   status: 'OPEN' | 'RESOLVED';
@@ -56,6 +80,7 @@ export interface Incident {
 
 export interface PerformanceResult {
   endpointId: string;
+  ownerId?: string;
   measuredAt: string;
   strategy: 'MOBILE';
   performanceScore: number;

@@ -46,10 +46,13 @@ export class AwsResultStore {
       TableName: this.#monitorsTableName,
       Key: { id: result.endpointId },
       UpdateExpression: 'SET latestCheck = :result, updatedAt = :checkedAt',
-      ConditionExpression: 'attribute_exists(id)',
+      ConditionExpression: result.ownerId
+        ? 'attribute_exists(id) AND ownerId = :ownerId'
+        : 'attribute_exists(id)',
       ExpressionAttributeValues: {
         ':result': result,
         ':checkedAt': result.checkedAt,
+        ...(result.ownerId ? { ':ownerId': result.ownerId } : {}),
       },
       ReturnValues: 'ALL_OLD',
     }));

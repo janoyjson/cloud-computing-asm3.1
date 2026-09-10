@@ -25,11 +25,11 @@ const defaultDependencies: StoreDependencies = {
 };
 
 export interface EndpointRepository {
-  list(): Promise<MonitoredEndpoint[]>;
-  get(id: string): Promise<MonitoredEndpoint | undefined>;
-  create(input: CreateEndpointInput): Promise<MonitoredEndpoint>;
-  update(id: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint | undefined>;
-  delete(id: string): Promise<boolean>;
+  list(ownerId?: string): Promise<MonitoredEndpoint[]>;
+  get(id: string, ownerId?: string): Promise<MonitoredEndpoint | undefined>;
+  create(input: CreateEndpointInput, ownerId?: string): Promise<MonitoredEndpoint>;
+  update(id: string, input: UpdateEndpointInput, ownerId?: string): Promise<MonitoredEndpoint | undefined>;
+  delete(id: string, ownerId?: string): Promise<boolean>;
 }
 
 export const MAX_MONITOR_URL_LENGTH = 2_048;
@@ -122,23 +122,26 @@ export class EndpointStore implements EndpointRepository {
     seed.forEach((item) => this.#items.set(item.id, item));
   }
 
-  public async list(): Promise<MonitoredEndpoint[]> {
-    return [...this.#items.values()].sort((left, right) => left.name.localeCompare(right.name));
+  public async list(ownerId?: string): Promise<MonitoredEndpoint[]> {
+    return [...this.#items.values()]
+      .filter((item) => !ownerId || item.ownerId === ownerId)
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  public async get(id: string): Promise<MonitoredEndpoint | undefined> {
-    return this.#items.get(id);
+  public async get(id: string, ownerId?: string): Promise<MonitoredEndpoint | undefined> {
+    const endpoint = this.#items.get(id);
+    return endpoint && (!ownerId || endpoint.ownerId === ownerId) ? endpoint : undefined;
   }
 
-  public async create(input: CreateEndpointInput): Promise<MonitoredEndpoint> {
-    const endpoint = createEndpoint(input, this.#dependencies);
+  public async create(input: CreateEndpointInput, ownerId?: string): Promise<MonitoredEndpoint> {
+    const endpoint = { ...createEndpoint(input, this.#dependencies), ...(ownerId ? { ownerId } : {}) };
 
     this.#items.set(endpoint.id, endpoint);
     return endpoint;
   }
 
-  public async update(id: string, input: UpdateEndpointInput): Promise<MonitoredEndpoint | undefined> {
-    const existing = this.#items.get(id);
+  public async update(id: string, input: UpdateEndpointInput, ownerId?: string): Promise<MonitoredEndpoint | undefined> {
+    const existing = await this.get(id, ownerId);
     if (!existing) {
       return undefined;
     }
@@ -148,7 +151,8 @@ export class EndpointStore implements EndpointRepository {
     return endpoint;
   }
 
-  public async delete(id: string): Promise<boolean> {
+  public async delete(id: string, ownerId?: string): Promise<boolean> {
+    if (!await this.get(id, ownerId)) return false;
     return this.#items.delete(id);
   }
 }

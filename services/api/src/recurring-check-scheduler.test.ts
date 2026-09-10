@@ -90,4 +90,16 @@ describe('EventBridgeRecurringCheckScheduler', () => {
   it('normalizes schedule names to Scheduler-compatible characters', () => {
     expect(scheduleName('customer/api status')).toBe('cloudsentinel-customer-api-status');
   });
+
+  it('passes the owner-specific notification secret to recurring tasks', async () => {
+    const send = vi.fn().mockResolvedValue({});
+
+    await scheduler(send).upsert({ ...endpoint, ownerId: 'user-one' }, 'cloudsentinel/discord-webhooks/user-one');
+
+    const command = send.mock.calls[0]?.[0];
+    expect(JSON.parse(command.input.Target.Input).containerOverrides[0].environment).toContainEqual({
+      name: 'NOTIFICATION_SECRET_ID',
+      value: 'cloudsentinel/discord-webhooks/user-one',
+    });
+  });
 });

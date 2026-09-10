@@ -1,6 +1,6 @@
 import type { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 
-import type { AnalyticsOverview, CreateEndpointInput, PerformanceResult, UpdateEndpointInput } from '@cloudsentinel/shared';
+import { discordWebhookSecretId, type AnalyticsOverview, type CreateEndpointInput, type PerformanceResult, type UpdateEndpointInput } from '@cloudsentinel/shared';
 
 import { EcsCheckTaskStarter, type CheckTaskStarter } from './check-task-starter.js';
 import { DynamoEndpointStore } from './dynamodb-endpoint-store.js';
@@ -14,6 +14,9 @@ import {
   type RecurringCheckScheduler,
 } from './recurring-check-scheduler.js';
 import { DynamoIncidentStore, type IncidentRepository } from './incident-store.js';
+import { hashPassword, issueJwt, normalizeEmail, publicUser, verifyJwt, verifyPassword, type AuthPrincipal } from './auth.js';
+import { DynamoUserStore, UserAlreadyExistsError, type UserRepository } from './user-store.js';
+import { SecretsManagerDiscordWebhookStore, type DiscordWebhookStore } from './discord-webhook-store.js';
 
 let configuredStore: EndpointRepository | undefined;
 let configuredTaskStarter: CheckTaskStarter | undefined;
@@ -22,6 +25,8 @@ let configuredPerformanceStore: DynamoPerformanceStore | undefined;
 let configuredPageSpeedClient: PageSpeedClient | undefined;
 let configuredAnalyticsStore: AthenaAnalyticsStore | undefined;
 let configuredIncidentStore: IncidentRepository | undefined;
+let configuredUserStore: UserRepository | undefined;
+let configuredDiscordWebhookStore: DiscordWebhookStore | undefined;
 
 export interface PerformanceAnalyzer {
   analyze(endpointId: string, url: string): Promise<PerformanceResult>;
@@ -33,7 +38,7 @@ export interface PerformanceRepository {
 }
 
 export interface AnalyticsRepository {
-  overview(range: AnalyticsRange): Promise<AnalyticsOverview>;
+  overview(range: AnalyticsRange, endpointIds?: readonly string[]): Promise<AnalyticsOverview>;
 }
 
 export type PublicUrlValidator = (url: string) => Promise<void>;
@@ -136,6 +141,18 @@ function getConfiguredIncidentStore(): IncidentRepository {
   return configuredIncidentStore;
 }
 
+function getConfiguredUserStore(): UserRepository {
+  if (configuredUserStore) return configuredUserStore;
+  configuredUserStore = new DynamoUserStore({ tableName: requiredEnvironment('USERS_TABLE_NAME') });
+  return configuredUserStore;
+}
+
+function getConfiguredDiscordWebhookStore(): DiscordWebhookStore {
+  if (configuredDiscordWebhookStore) return configuredDiscordWebhookStore;
+  configuredDiscordWebhookStore = new SecretsManagerDiscordWebhookStore();
+  return configuredDiscordWebhookStore;
+}
+
 function json(statusCode: number, body: unknown) {
   return {
     statusCode,
@@ -146,13 +163,39 @@ function json(statusCode: number, body: unknown) {
   };
 }
 
-function isAuthorized(event: Parameters<APIGatewayProxyHandlerV2>[0]): boolean {
-  const expectedToken = process.env.API_ACCESS_TOKEN?.trim();
-  if (!expectedToken) return true;
-
+function bearerToken(event: Parameters<APIGatewayProxyHandlerV2>[0]): string | undefined {
   const headers = event.headers ?? {};
   const supplied = headers.authorization ?? headers.Authorization ?? headers['x-cloudsentinel-access-token'];
-  return supplied === `Bearer ${expectedToken}` || supplied === expectedToken;
+  if (!supplied) return undefined;
+  return supplied.startsWith('Bearer ') ? supplied.slice('Bearer '.length).trim() : supplied.trim();
+}
+
+function authenticatedPrincipal(event: Parameters<APIGatewayProxyHandlerV2>[0]): AuthPrincipal | undefined {
+  const secret = configuredJwtSecret();
+  const token = bearerToken(event);
+  return secret && token ? verifyJwt(token, secret) : undefined;
+}
+
+function configuredJwtSecret(): string | undefined {
+  return process.env.JWT_SECRET?.trim() || process.env.API_ACCESS_TOKEN?.trim();
+}
+
+function authSecret(): string {
+  const secret = configuredJwtSecret();
+  if (!secret) throw new Error('JWT_SECRET environment variable is required.');
+  return secret;
+}
+
+function credentials(input: unknown): { email: string; password: string } {
+  if (typeof input !== 'object' || input === null) throw new ValidationError('Email and password are required.');
+  const candidate = input as { email?: unknown; password?: unknown };
+  if (typeof candidate.email !== 'string' || !/^\S+@\S+\.\S+$/.test(candidate.email.trim())) {
+    throw new ValidationError('A valid email address is required.');
+  }
+  if (typeof candidate.password !== 'string' || candidate.password.length < 12 || candidate.password.length > 128) {
+    throw new ValidationError('Password must contain between 12 and 128 characters.');
+  }
+  return { email: normalizeEmail(candidate.email), password: candidate.password };
 }
 
 function parseJsonBody(event: Parameters<APIGatewayProxyHandlerV2>[0]): unknown {
@@ -172,32 +215,91 @@ export function createHandler(
   getAnalyticsRepository: () => AnalyticsRepository = getConfiguredAnalyticsStore,
   validatePublicUrl: PublicUrlValidator = assertPublicHttpUrl,
   getIncidentRepository: () => IncidentRepository = getConfiguredIncidentStore,
+  getUserRepository: () => UserRepository = getConfiguredUserStore,
+  getDiscordWebhookStore: () => DiscordWebhookStore = getConfiguredDiscordWebhookStore,
 ): APIGatewayProxyHandlerV2 {
   return async (event) => {
   const routeKey = event.routeKey;
-
-  if (routeKey !== 'GET /v1/health' && process.env.API_ACCESS_TOKEN?.trim() && !isAuthorized(event)) {
-    return json(401, { error: { code: 'UNAUTHORIZED', message: 'A valid API access token is required.' } });
-  }
 
   if (routeKey === 'GET /v1/health') {
       return json(200, { status: 'ok', phase: 6 });
   }
 
+    const principal = authenticatedPrincipal(event);
+    const ownerId = principal?.sub;
+    const isAuthRoute = routeKey === 'POST /v1/auth/register' || routeKey === 'POST /v1/auth/login';
+    if (!isAuthRoute && configuredJwtSecret() && !principal) {
+      return json(401, { error: { code: 'UNAUTHORIZED', message: 'A valid JWT bearer token is required.' } });
+    }
+
     try {
+      if (routeKey === 'POST /v1/auth/register') {
+        const { email, password } = credentials(parseJsonBody(event));
+        const user = await getUserRepository().create(email, hashPassword(password));
+        const session = issueJwt(user, authSecret());
+        return json(201, { ...session, user: publicUser(user) });
+      }
+
+      if (routeKey === 'POST /v1/auth/login') {
+        const { email, password } = credentials(parseJsonBody(event));
+        const user = await getUserRepository().getByEmail(email);
+        if (!user || !verifyPassword(password, user.passwordHash)) {
+          return json(401, { error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect.' } });
+        }
+        const session = issueJwt(user, authSecret());
+        return json(200, { ...session, user: publicUser(user) });
+      }
+
+      if (routeKey === 'GET /v1/auth/me') {
+        return principal
+          ? json(200, { user: { id: principal.sub, email: principal.email } })
+          : json(401, { error: { code: 'UNAUTHORIZED', message: 'A valid JWT bearer token is required.' } });
+      }
+
+      if (routeKey === 'GET /v1/settings/discord') {
+        if (!ownerId) return json(401, { error: { code: 'UNAUTHORIZED', message: 'A signed-in user is required.' } });
+        return json(200, await getDiscordWebhookStore().get(ownerId));
+      }
+
+      if (routeKey === 'PUT /v1/settings/discord') {
+        if (!ownerId) return json(401, { error: { code: 'UNAUTHORIZED', message: 'A signed-in user is required.' } });
+        const input = parseJsonBody(event) as { webhookUrl?: unknown };
+        if (typeof input.webhookUrl !== 'string' || !input.webhookUrl.trim()) {
+          throw new ValidationError('A Discord webhook URL is required.');
+        }
+
+        await getDiscordWebhookStore().set(ownerId, input.webhookUrl);
+        const secretId = discordWebhookSecretId(ownerId);
+        for (const endpoint of await getStore().list(ownerId)) {
+          await getRecurringScheduler().upsert(endpoint, secretId);
+        }
+        return json(200, { configured: true });
+      }
+
+      if (routeKey === 'DELETE /v1/settings/discord') {
+        if (!ownerId) return json(401, { error: { code: 'UNAUTHORIZED', message: 'A signed-in user is required.' } });
+        await getDiscordWebhookStore().remove(ownerId);
+        for (const endpoint of await getStore().list(ownerId)) {
+          await getRecurringScheduler().upsert(endpoint, discordWebhookSecretId(ownerId));
+        }
+        return json(200, { configured: false });
+      }
+
       if (routeKey === 'GET /v1/endpoints') {
-        return json(200, { items: await getStore().list() });
+        return json(200, { items: await getStore().list(ownerId) });
       }
 
       if (routeKey === 'POST /v1/endpoints') {
         const input = parseJsonBody(event) as CreateEndpointInput;
         await validateEndpointUrl(input.url, validatePublicUrl);
-        const endpoint = await getStore().create(input);
+        const endpoint = await getStore().create(input, ownerId);
 
         try {
-          await getRecurringScheduler().upsert(endpoint);
+          const secretId = ownerId ? discordWebhookSecretId(ownerId) : undefined;
+          if (ownerId) await getRecurringScheduler().upsert(endpoint, secretId);
+          else await getRecurringScheduler().upsert(endpoint);
         } catch (error) {
-          await getStore().delete(endpoint.id).catch((rollbackError: unknown) => {
+          await getStore().delete(endpoint.id, ownerId).catch((rollbackError: unknown) => {
             console.error('Could not roll back endpoint after schedule creation failed', rollbackError);
           });
           throw error;
@@ -214,24 +316,26 @@ export function createHandler(
 
         const input = parseJsonBody(event) as UpdateEndpointInput;
         if (input.url !== undefined) await validateEndpointUrl(input.url, validatePublicUrl);
-        const existing = await getStore().get(endpointId);
+        const existing = await getStore().get(endpointId, ownerId);
         if (!existing) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
-        const endpoint = await getStore().update(endpointId, input);
+        const endpoint = await getStore().update(endpointId, input, ownerId);
         if (!endpoint) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
 
         try {
-          await getRecurringScheduler().upsert(endpoint);
+          const secretId = ownerId ? discordWebhookSecretId(ownerId) : undefined;
+          if (ownerId) await getRecurringScheduler().upsert(endpoint, secretId);
+          else await getRecurringScheduler().upsert(endpoint);
         } catch (error) {
           await getStore().update(endpointId, {
             name: existing.name,
             url: existing.url,
             intervalMinutes: existing.intervalMinutes,
             enabled: existing.enabled,
-          }).catch((rollbackError: unknown) => {
+          }, ownerId).catch((rollbackError: unknown) => {
             console.error('Could not roll back endpoint after schedule update failed', rollbackError);
           });
           throw error;
@@ -245,13 +349,13 @@ export function createHandler(
           throw new ValidationError('Endpoint ID is required.');
         }
 
-        const endpoint = await getStore().get(endpointId);
+        const endpoint = await getStore().get(endpointId, ownerId);
         if (!endpoint) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
 
         await getRecurringScheduler().remove(endpointId);
-        await getStore().delete(endpointId);
+        await getStore().delete(endpointId, ownerId);
         return json(200, { id: endpointId, status: 'DELETED' });
       }
 
@@ -261,28 +365,32 @@ export function createHandler(
           throw new ValidationError('Endpoint ID is required.');
         }
 
-        const endpoint = await getStore().get(endpointId);
+        const endpoint = await getStore().get(endpointId, ownerId);
         if (!endpoint) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
 
-        return json(202, await getTaskStarter().start(endpoint));
+        const secretId = ownerId ? discordWebhookSecretId(ownerId) : undefined;
+        return json(202, ownerId
+          ? await getTaskStarter().start(endpoint, secretId)
+          : await getTaskStarter().start(endpoint));
       }
 
       if (routeKey === 'POST /v1/endpoints/{id}/performance') {
         const endpointId = event.pathParameters?.id?.trim();
         if (!endpointId) throw new ValidationError('Endpoint ID is required.');
-        const endpoint = await getStore().get(endpointId);
+        const endpoint = await getStore().get(endpointId, ownerId);
         if (!endpoint) return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         const result = await getPerformanceAnalyzer().analyze(endpoint.id, endpoint.url);
-        await getPerformanceRepository().save(result);
-        return json(201, result);
+        const ownedResult = { ...result, ...(ownerId ? { ownerId } : {}) };
+        await getPerformanceRepository().save(ownedResult);
+        return json(201, ownedResult);
       }
 
       if (routeKey === 'GET /v1/endpoints/{id}/performance') {
         const endpointId = event.pathParameters?.id?.trim();
         if (!endpointId) throw new ValidationError('Endpoint ID is required.');
-        if (!await getStore().get(endpointId)) {
+        if (!await getStore().get(endpointId, ownerId)) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
         return json(200, { items: await getPerformanceRepository().list(endpointId) });
@@ -291,7 +399,7 @@ export function createHandler(
       if (routeKey === 'GET /v1/endpoints/{id}/incidents') {
         const endpointId = event.pathParameters?.id?.trim();
         if (!endpointId) throw new ValidationError('Endpoint ID is required.');
-        if (!await getStore().get(endpointId)) {
+        if (!await getStore().get(endpointId, ownerId)) {
           return json(404, { error: { code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint not found.' } });
         }
         return json(200, { items: await getIncidentRepository().list(endpointId) });
@@ -301,9 +409,16 @@ export function createHandler(
         const now = new Date();
         const from = event.queryStringParameters?.from ?? new Date(now.getTime() - 86_400_000).toISOString();
         const to = event.queryStringParameters?.to ?? now.toISOString();
-        return json(200, await getAnalyticsRepository().overview({ from, to }));
+        const range = { from, to };
+        const endpointIds = ownerId ? (await getStore().list(ownerId)).map((endpoint) => endpoint.id) : undefined;
+        return json(200, endpointIds
+          ? await getAnalyticsRepository().overview(range, endpointIds)
+          : await getAnalyticsRepository().overview(range));
       }
     } catch (error) {
+      if (error instanceof UserAlreadyExistsError) {
+        return json(409, { error: { code: 'USER_ALREADY_EXISTS', message: error.message } });
+      }
       if (error instanceof ValidationError) {
         return json(400, { error: { code: 'VALIDATION_ERROR', message: error.message } });
       }

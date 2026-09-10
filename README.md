@@ -16,6 +16,7 @@ Phases 1–4 are implemented, with Phase 5 analytics/performance deployment and 
 - Architecture, API, roadmap, and rubric-traceability documentation
 - Unit tests, linting, type checking, and production builds
 - Active DynamoDB monitor, check, and incident tables in `us-east-1`
+- DynamoDB-backed account registration/sign-in with signed JWT sessions protecting the AWS routes
 - DynamoDB-backed Lambda API package ready for manual Console upload
 
 Verified locally on 9 September 2026: lint, type checks, 72 unit tests, all workspace builds, and browser-based create/check workflows passed. AWS smoke tests require a current Learner Lab session.
@@ -44,7 +45,7 @@ pnpm install
 pnpm dev
 ```
 
-The dashboard runs at `http://localhost:5173`. Leave `VITE_API_BASE_URL` empty for local demo data, or provide the deployed HTTPS API URL to use AWS. An optional `VITE_API_ACCESS_TOKEN` must match the Lambda `API_ACCESS_TOKEN` setting when API access protection is enabled.
+The dashboard runs at `http://localhost:5173`. Leave `VITE_API_BASE_URL` empty for local demo data, or provide the deployed HTTPS API URL to use AWS. In AWS mode, the browser registers/signs in through `/v1/auth` and sends the signed JWT as a bearer token. User ownership is derived from the token subject, so each account sees only its own monitored endpoints.
 
 Run the full verification suite:
 

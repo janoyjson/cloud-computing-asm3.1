@@ -3,6 +3,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -73,6 +74,19 @@ describe('DynamoEndpointStore', () => {
       TableName: 'CloudSentinelMonitors',
       Key: { id: 'endpoint-123' },
     });
+  });
+
+  it('finds an owner endpoint even when it is not the first GSI result', async () => {
+    const target = { id: 'endpoint-123', ownerId: 'user-1', name: 'Target' };
+    const send = vi.fn().mockResolvedValue({ Items: [{ id: 'other', ownerId: 'user-1' }, target] });
+    const store = new DynamoEndpointStore({
+      tableName: 'CloudSentinelMonitors',
+      client: { send } as unknown as DynamoDBDocumentClient,
+    });
+
+    await expect(store.get('endpoint-123', 'user-1')).resolves.toEqual(target);
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(QueryCommand);
+    expect(send.mock.calls[0]?.[0].input.Limit).toBeUndefined();
   });
 
   it('updates mutable endpoint fields without replacing worker-owned state', async () => {

@@ -70,4 +70,22 @@ describe('EcsCheckTaskStarter', () => {
 
     await expect(starter.start(endpoint)).rejects.toThrow('RESOURCE:FARGATE');
   });
+
+  it('passes the owner-specific notification secret as a task override', async () => {
+    const send = vi.fn().mockResolvedValue({ tasks: [{ taskArn: 'arn:task/example' }] });
+    const starter = new EcsCheckTaskStarter({
+      cluster: 'cloudsentinel-cluster',
+      taskDefinition: 'cloudsentinel-monitor-worker:2',
+      subnets: ['subnet-public'],
+      securityGroups: ['sg-worker'],
+      client: { send } as unknown as ECSClient,
+    });
+
+    await starter.start({ ...endpoint, ownerId: 'user-one' }, 'cloudsentinel/discord-webhooks/user-one');
+
+    expect(send.mock.calls[0]?.[0].input.overrides.containerOverrides[0].environment).toContainEqual({
+      name: 'NOTIFICATION_SECRET_ID',
+      value: 'cloudsentinel/discord-webhooks/user-one',
+    });
+  });
 });

@@ -8,7 +8,7 @@ export interface StartedCheckTask {
 }
 
 export interface CheckTaskStarter {
-  start(endpoint: MonitoredEndpoint): Promise<StartedCheckTask>;
+  start(endpoint: MonitoredEndpoint, notificationSecretId?: string): Promise<StartedCheckTask>;
 }
 
 interface EcsCheckTaskStarterOptions {
@@ -40,7 +40,7 @@ export class EcsCheckTaskStarter implements CheckTaskStarter {
     this.#client = options.client ?? new ECSClient({});
   }
 
-  public async start(endpoint: MonitoredEndpoint): Promise<StartedCheckTask> {
+  public async start(endpoint: MonitoredEndpoint, notificationSecretId?: string): Promise<StartedCheckTask> {
     const response = await this.#client.send(new RunTaskCommand({
       cluster: this.#cluster,
       taskDefinition: this.#taskDefinition,
@@ -60,6 +60,8 @@ export class EcsCheckTaskStarter implements CheckTaskStarter {
             { name: 'MONITOR_ENDPOINT_ID', value: endpoint.id },
             { name: 'MONITOR_TARGET_URL', value: endpoint.url },
             { name: 'MONITOR_SOURCE', value: 'MANUAL' },
+            ...(endpoint.ownerId ? [{ name: 'MONITOR_OWNER_ID', value: endpoint.ownerId }] : []),
+            ...(endpoint.ownerId ? [{ name: 'NOTIFICATION_SECRET_ID', value: notificationSecretId ?? '' }] : []),
           ],
         }],
       },

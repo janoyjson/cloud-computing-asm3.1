@@ -21,6 +21,7 @@ import {
   initialEndpoints,
 } from './mock-cloudsentinel.js';
 import { CloudSentinelApiClient } from './api-client.js';
+import { JwtAuthClient, type JwtSession } from './jwt-auth.js';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 const apiAccessToken = import.meta.env.VITE_API_ACCESS_TOKEN?.trim();
@@ -28,20 +29,10 @@ const apiClient = apiBaseUrl && !apiBaseUrl.includes('your-api-id')
   ? new CloudSentinelApiClient(apiBaseUrl, window.fetch.bind(window), apiAccessToken)
   : undefined;
 const isAwsMode = apiClient !== undefined;
+const jwtAuth = isAwsMode && apiBaseUrl ? new JwtAuthClient(apiBaseUrl) : undefined;
+const requiresAuthentication = jwtAuth !== undefined;
 const checkPollIntervalMs = 5_000;
 const checkPollAttempts = 12;
-const navigationItems = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'endpoints', label: 'Endpoints' },
-  { id: 'activity', label: 'Activity' },
-  { id: 'architecture', label: 'Architecture' },
-] as const;
-const currentMilestone = {
-  phase: 6,
-  totalPhases: 8,
-  label: 'Security & resilience',
-  progressPercent: 75,
-};
 
 const initialForm: CreateEndpointInput = {
   name: '',
@@ -83,7 +74,9 @@ export default function App() {
   const [checks, setChecks] = useState<CheckResult[]>(isAwsMode ? [] : initialChecks);
   const [form, setForm] = useState<CreateEndpointInput>(initialForm);
   const [notice, setNotice] = useState(
-    isAwsMode ? 'Loading monitors from AWS...' : 'Local fallback mode: no AWS resources are being used.',
+    isAwsMode
+      ? requiresAuthentication ? 'Restoring your secure session...' : 'Loading monitors from AWS...'
+      : 'Local fallback mode: no AWS resources are being used.',
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runningEndpointIds, setRunningEndpointIds] = useState<ReadonlySet<string>>(new Set());
@@ -96,27 +89,53 @@ export default function App() {
   const [expandedActionIds, setExpandedActionIds] = useState<ReadonlySet<string>>(new Set());
   const [editingEndpointId, setEditingEndpointId] = useState<string>();
   const [editForm, setEditForm] = useState<UpdateEndpointInput>({});
-  const [activeSection, setActiveSection] = useState('overview');
+  const [authStatus, setAuthStatus] = useState<'loading' | 'signed-out' | 'authenticated'>(requiresAuthentication ? 'loading' : 'authenticated');
+  const [authSession, setAuthSession] = useState<JwtSession>();
+  const [authStage, setAuthStage] = useState<'sign-in' | 'sign-up'>('sign-in');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isAuthBusy, setIsAuthBusy] = useState(false);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [discordWebhookConfigured, setDiscordWebhookConfigured] = useState(false);
+  const [isDiscordBusy, setIsDiscordBusy] = useState(false);
 
   useEffect(() => {
-    const updateActiveSection = () => {
-      const hash = window.location.hash.slice(1);
-      if (navigationItems.some((item) => item.id === hash)) {
-        setActiveSection(hash);
-      }
-    };
+    if (!jwtAuth || !apiClient) {
+      return;
+    }
 
-    updateActiveSection();
-    window.addEventListener('hashchange', updateActiveSection);
-    return () => window.removeEventListener('hashchange', updateActiveSection);
+    let active = true;
+    const session = jwtAuth.restoreSession();
+    if (session) {
+      apiClient.setAccessToken(session.token);
+      setAuthSession(session);
+      setAuthStatus('authenticated');
+      setNotice(`Signed in as ${session.email}.`);
+    } else {
+      setAuthStatus('signed-out');
+      setNotice('Sign in to access your monitored endpoints.');
+    }
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!apiClient) {
       return;
     }
+    if (jwtAuth && authStatus !== 'authenticated') {
+      return;
+    }
 
     let active = true;
+    apiClient.getDiscordWebhookSettings()
+      .then((settings) => {
+        if (active) setDiscordWebhookConfigured(settings.configured);
+      })
+      .catch(() => undefined);
+
     apiClient.listEndpoints()
       .then(async (items) => {
         if (active) {
@@ -145,7 +164,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [authStatus]);
 
   const summary = useMemo(() => {
     const up = endpoints.filter((endpoint) => getEndpointState(endpoint) === 'UP').length;
@@ -157,6 +176,95 @@ export default function App() {
       uptime: calculateUptimePercent(checks),
     };
   }, [checks, endpoints]);
+
+  async function submitSignIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!jwtAuth) return;
+    setIsAuthBusy(true);
+    try {
+      const session = await jwtAuth.signIn(authEmail.trim(), authPassword);
+      jwtAuth.persist(session);
+      apiClient?.setAccessToken(session.token);
+      setAuthSession(session);
+      setAuthStatus('authenticated');
+      setAuthPassword('');
+      setNotice(`Signed in as ${session.email}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Sign in failed.');
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
+  async function submitSignUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!jwtAuth) return;
+    setIsAuthBusy(true);
+    try {
+      const session = await jwtAuth.register(authEmail.trim(), authPassword);
+      jwtAuth.persist(session);
+      apiClient?.setAccessToken(session.token);
+      setAuthSession(session);
+      setAuthStatus('authenticated');
+      setAuthPassword('');
+      setNotice(`Account created. Signed in as ${session.email}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Sign up failed.');
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
+  function signOut() {
+    jwtAuth?.signOut();
+    apiClient?.setAccessToken(undefined);
+    setAuthSession(undefined);
+    setAuthStatus(requiresAuthentication ? 'signed-out' : 'authenticated');
+    setEndpoints([]);
+    setChecks([]);
+    setAnalytics(undefined);
+    setPerformanceHistory({});
+    setIncidentHistory({});
+    setDiscordWebhookUrl('');
+    setDiscordWebhookConfigured(false);
+    setNotice('You have been signed out.');
+  }
+
+  async function saveDiscordWebhook(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!apiClient) {
+      setNotice('Discord notifications require the AWS-connected dashboard.');
+      return;
+    }
+
+    setIsDiscordBusy(true);
+    try {
+      const settings = await apiClient.saveDiscordWebhook(discordWebhookUrl);
+      setDiscordWebhookConfigured(settings.configured);
+      setDiscordWebhookUrl('');
+      setNotice('Your Discord webhook was saved. New outage and recovery alerts will use it.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The Discord webhook could not be saved.');
+    } finally {
+      setIsDiscordBusy(false);
+    }
+  }
+
+  async function removeDiscordWebhook() {
+    if (!apiClient || !window.confirm('Disable Discord notifications for your account?')) return;
+
+    setIsDiscordBusy(true);
+    try {
+      const settings = await apiClient.removeDiscordWebhook();
+      setDiscordWebhookConfigured(settings.configured);
+      setDiscordWebhookUrl('');
+      setNotice('Discord notifications were disabled for your account.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The Discord webhook could not be removed.');
+    } finally {
+      setIsDiscordBusy(false);
+    }
+  }
 
   async function submitEndpoint(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -385,55 +493,52 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#top" aria-label="CloudSentinel home">
-          <span className="brand-mark">CS</span>
-          <span>
-            <strong>CloudSentinel</strong>
-            <small>Deployment health</small>
-          </span>
-        </a>
-        <nav aria-label="Primary navigation">
-          {navigationItems.map((item) => (
-            <a
-              className={activeSection === item.id ? 'nav-active' : undefined}
-              href={`#${item.id}`}
-              aria-current={activeSection === item.id ? 'page' : undefined}
-              onClick={() => setActiveSection(item.id)}
-              key={item.id}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-        <div className="phase-card">
-          <span>Current milestone</span>
-          <strong>Phase {currentMilestone.phase} of {currentMilestone.totalPhases}</strong>
-          <div
-            className="progress"
-            role="progressbar"
-            aria-label="Project milestone progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={currentMilestone.progressPercent}
-          >
-            <span style={{ width: `${currentMilestone.progressPercent}%` }} />
-          </div>
-          <small>{currentMilestone.label}</small>
-        </div>
-      </aside>
-
       <main id="top">
         <header className="topbar">
           <div>
             <span className="eyebrow">{formatCurrentDate()}</span>
             <h1>Deployment overview</h1>
           </div>
-          <span className="environment"><i /> {isAwsMode ? 'AWS live environment' : 'Local fallback environment'}</span>
+          <div className="topbar-actions">
+            <span className="environment"><i /> {isAwsMode ? 'AWS live environment' : 'Local fallback environment'}</span>
+            {requiresAuthentication && authSession && (
+              <button className="button-secondary" type="button" onClick={signOut}>Sign out</button>
+            )}
+          </div>
         </header>
 
         <div className="notice" role="status">{notice}</div>
 
+        {requiresAuthentication && authStatus !== 'authenticated' ? (
+          <section className="auth-panel panel" aria-labelledby="auth-title">
+            <span className="eyebrow">Protected workspace</span>
+            <h2 id="auth-title">
+            {authStatus === 'loading' ? 'Restoring secure session' : authStage === 'sign-up' ? 'Create your account' : 'Sign in to CloudSentinel'}
+            </h2>
+            {authStatus === 'loading' ? (
+              <p className="empty-state">Checking for an existing JWT session...</p>
+            ) : (
+              <form className="auth-form" onSubmit={(event) => void (authStage === 'sign-up' ? submitSignUp(event) : submitSignIn(event))}>
+                <label>
+                  Email
+                  <input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} autoComplete="email" required />
+                </label>
+                <label>
+                  Password
+                  <input type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} minLength={12} autoComplete={authStage === 'sign-up' ? 'new-password' : 'current-password'} required />
+                </label>
+                <button className="button-primary" disabled={isAuthBusy} type="submit">
+                  {isAuthBusy ? 'Working...' : authStage === 'sign-up' ? 'Create account' : 'Sign in'}
+                </button>
+                <button className="auth-link" type="button" onClick={() => setAuthStage(authStage === 'sign-up' ? 'sign-in' : 'sign-up')}>
+                  {authStage === 'sign-up' ? 'Already have an account? Sign in' : 'Need an account? Sign up'}
+                </button>
+              </form>
+            )}
+            <small className="auth-note">Accounts are stored in DynamoDB and API requests use a signed 24-hour JWT. No email confirmation is required.</small>
+          </section>
+        ) : (
+          <>
         <section id="overview" className="metric-grid" aria-label="Monitoring summary">
           <article className="metric-card metric-primary">
             <span>Overall uptime</span>
@@ -604,6 +709,43 @@ export default function App() {
           </aside>
         </section>
 
+        <section className="panel notification-panel" aria-labelledby="notification-title">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">Private account setting</span>
+              <h2 id="notification-title">Discord notifications</h2>
+            </div>
+            <span className={`count-pill ${discordWebhookConfigured ? 'configured-pill' : ''}`}>
+              {discordWebhookConfigured ? 'Configured' : 'Not configured'}
+            </span>
+          </div>
+          <p className="settings-copy">
+            Add a Discord channel webhook to receive outage and recovery alerts for your monitors. The URL is stored securely and is never returned to the browser.
+          </p>
+          <form className="notification-form" onSubmit={(event) => void saveDiscordWebhook(event)}>
+            <label>
+              Discord webhook URL
+              <input
+                required
+                type="url"
+                placeholder="https://discord.com/api/webhooks/..."
+                value={discordWebhookUrl}
+                onChange={(event) => setDiscordWebhookUrl(event.target.value)}
+              />
+            </label>
+            <div className="notification-actions">
+              <button className="button-primary" type="submit" disabled={isDiscordBusy || !apiClient}>
+                {isDiscordBusy ? 'Saving...' : discordWebhookConfigured ? 'Replace webhook' : 'Save webhook'}
+              </button>
+              {discordWebhookConfigured && (
+                <button className="button-secondary button-danger" type="button" disabled={isDiscordBusy} onClick={() => void removeDiscordWebhook()}>
+                  Remove webhook
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
         <section className="bottom-grid">
           <article id="activity" className="panel">
             <div className="panel-heading">
@@ -709,6 +851,8 @@ export default function App() {
               </div>
           </article>
         </section>
+          </>
+        )}
       </main>
     </div>
   );

@@ -1,6 +1,6 @@
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
-import type { CheckResult, Incident } from '@cloudsentinel/shared';
+import { isApprovedDiscordWebhookUrl, type CheckResult, type Incident } from '@cloudsentinel/shared';
 
 import type { NotificationKind } from './incident-store.js';
 
@@ -40,12 +40,11 @@ function parseWebhookUrl(secretString: string | undefined): string {
     throw new Error('The notification secret must contain a string url field.');
   }
 
-  const url = new URL(urlValue);
-  const allowedHost = url.hostname === 'discord.com' || url.hostname === 'discordapp.com';
-  if (url.protocol !== 'https:' || !allowedHost || !url.pathname.startsWith('/api/webhooks/')) {
+  if (!isApprovedDiscordWebhookUrl(urlValue)) {
     throw new Error('The notification secret does not contain an approved Discord webhook URL.');
   }
 
+  const url = new URL(urlValue);
   url.searchParams.set('wait', 'true');
   return url.toString();
 }

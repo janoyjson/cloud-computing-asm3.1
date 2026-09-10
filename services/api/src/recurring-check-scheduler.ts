@@ -9,7 +9,7 @@ import {
 import type { MonitoredEndpoint } from '@cloudsentinel/shared';
 
 export interface RecurringCheckScheduler {
-  upsert(endpoint: MonitoredEndpoint): Promise<void>;
+  upsert(endpoint: MonitoredEndpoint, notificationSecretId?: string): Promise<void>;
   remove(endpointId: string): Promise<void>;
 }
 
@@ -57,8 +57,8 @@ export class EventBridgeRecurringCheckScheduler implements RecurringCheckSchedul
     this.#client = options.client ?? new SchedulerClient({});
   }
 
-  public async upsert(endpoint: MonitoredEndpoint): Promise<void> {
-    const definition = this.#definition(endpoint);
+  public async upsert(endpoint: MonitoredEndpoint, notificationSecretId?: string): Promise<void> {
+    const definition = this.#definition(endpoint, notificationSecretId);
 
     try {
       await this.#client.send(new UpdateScheduleCommand(definition));
@@ -84,7 +84,7 @@ export class EventBridgeRecurringCheckScheduler implements RecurringCheckSchedul
     }
   }
 
-  #definition(endpoint: MonitoredEndpoint): CreateScheduleCommandInput {
+  #definition(endpoint: MonitoredEndpoint, notificationSecretId?: string): CreateScheduleCommandInput {
     return {
       Name: scheduleName(endpoint.id),
       GroupName: this.#groupName,
@@ -116,6 +116,8 @@ export class EventBridgeRecurringCheckScheduler implements RecurringCheckSchedul
               { name: 'MONITOR_ENDPOINT_ID', value: endpoint.id },
               { name: 'MONITOR_TARGET_URL', value: endpoint.url },
               { name: 'MONITOR_SOURCE', value: 'SCHEDULED' },
+              ...(endpoint.ownerId ? [{ name: 'MONITOR_OWNER_ID', value: endpoint.ownerId }] : []),
+              ...(endpoint.ownerId ? [{ name: 'NOTIFICATION_SECRET_ID', value: notificationSecretId ?? '' }] : []),
             ],
           }],
         }),

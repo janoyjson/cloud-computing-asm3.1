@@ -15,6 +15,7 @@
     "@aws-sdk/client-ecs": "^3.1127.0",
     "@aws-sdk/client-athena": "^3.1127.0",
     "@aws-sdk/client-scheduler": "^3.1127.0",
+    "@aws-sdk/client-secrets-manager": "^3.1127.0",
     "@aws-sdk/lib-dynamodb": "^3.883.0",
     "@cloudsentinel/shared": "workspace:*"
   },
