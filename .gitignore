@@ -13,3 +13,5 @@ cdk.out/
 Thumbs.db
 tmp/
 artifacts/
+.report_assets/
+.report_render_word/

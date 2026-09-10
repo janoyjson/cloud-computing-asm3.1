@@ -90,6 +90,9 @@ export class PageSpeedClient {
     }
 
     if (lastError) {
+      if (lastError instanceof DOMException && lastError.name === 'TimeoutError') {
+        throw new Error(`PageSpeed timed out after ${this.#attemptTimeoutMs / 1000} seconds. The target may block Lighthouse or be too slow. Try a public HTTPS page and retry.`);
+      }
       throw new Error(`PageSpeed request failed after ${this.#maxAttempts} attempts: ${this.#errorMessage(lastError)}`);
     }
 
@@ -98,7 +101,8 @@ export class PageSpeedClient {
     }
 
     if (!response.ok) {
-      throw new Error(`PageSpeed rejected the request with HTTP ${response.status} after ${this.#maxAttempts} attempts.`);
+      const details = await this.#readErrorDetails(response);
+      throw new Error(`PageSpeed rejected the request with HTTP ${response.status}${details ? `: ${details}` : ` after ${this.#maxAttempts} attempts.`}`);
     }
 
     const payload = await response.json() as PageSpeedResponse;
@@ -128,5 +132,15 @@ export class PageSpeedClient {
 
   #errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'network error';
+  }
+
+  async #readErrorDetails(response: Response): Promise<string | undefined> {
+    try {
+      const payload = await response.json() as { error?: { message?: string } };
+      const message = payload.error?.message?.trim();
+      return message || undefined;
+    } catch {
+      return undefined;
+    }
   }
 }

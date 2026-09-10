@@ -47,11 +47,13 @@ describe('PageSpeedClient', () => {
   });
 
   it('fails safely when Google rejects the request', async () => {
-    const fetchImplementation = vi.fn().mockResolvedValue(new Response('', { status: 429 }));
+    const fetchImplementation = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { message: 'Quota exceeded.' },
+    }), { status: 429 }));
     const client = new PageSpeedClient({ fetchImplementation, maxAttempts: 1 });
 
     await expect(client.analyze('endpoint-1', 'https://example.com'))
-      .rejects.toThrow('PageSpeed rejected the request with HTTP 429 after 1 attempts.');
+      .rejects.toThrow('PageSpeed rejected the request with HTTP 429: Quota exceeded.');
   });
 
   it('retries a transient upstream error and returns the recovered result', async () => {
@@ -90,7 +92,7 @@ describe('PageSpeedClient', () => {
     const client = new PageSpeedClient({ fetchImplementation, retryDelayMs: 0 });
 
     await expect(client.analyze('endpoint-1', 'https://example.com'))
-      .rejects.toThrow('PageSpeed request failed after 2 attempts: The operation was aborted due to timeout');
+      .rejects.toThrow('PageSpeed timed out after 12 seconds. The target may block Lighthouse or be too slow. Try a public HTTPS page and retry.');
     expect(fetchImplementation).toHaveBeenCalledTimes(2);
   });
 });

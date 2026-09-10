@@ -120,7 +120,14 @@ function getConfiguredPerformanceStore(): DynamoPerformanceStore {
 
 function getConfiguredPageSpeedClient(): PageSpeedClient {
   if (configuredPageSpeedClient) return configuredPageSpeedClient;
-  configuredPageSpeedClient = new PageSpeedClient({ apiKey: process.env.PAGESPEED_API_KEY?.trim() || undefined });
+  // Lighthouse requests can take longer than the short API operations. Keep one
+  // generous attempt within API Gateway's integration timeout instead of spending
+  // the whole request budget on two short attempts that both time out.
+  configuredPageSpeedClient = new PageSpeedClient({
+    apiKey: process.env.PAGESPEED_API_KEY?.trim() || undefined,
+    attemptTimeoutMs: 25_000,
+    maxAttempts: 1,
+  });
   return configuredPageSpeedClient;
 }
 
